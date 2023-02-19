@@ -8,6 +8,14 @@ use sdl2::render::TextureQuery;
 use sdl2::ttf;
 use std::time::Instant;
 
+/*  To Do
+    - Make it resizable
+    - Make text go left
+
+    To do eventually
+    - Change font rendering
+    - Add font picker
+ */
 macro_rules! log_err {
     ($e:expr) => {
         let e = $e;
