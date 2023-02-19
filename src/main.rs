@@ -20,7 +20,10 @@ macro_rules! log_err {
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 600;
 
+const DEFAULT_FONT: &str = "fonts/bitstream-vera-sans-mono-fonts/VeraMono.ttf";
+
 pub fn main() {
+    let font = DEFAULT_FONT;
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     video_subsystem.text_input().start();
@@ -28,12 +31,7 @@ pub fn main() {
     let clipboard = video_subsystem.clipboard();
 
     let ttf_context = ttf::init().unwrap();
-    let font = ttf_context
-        .load_font(
-            "/home/sapphie/.fonts/CelestiaMediumReduxAlternate-P5dm.ttf",
-            25,
-        )
-        .unwrap();
+    let font = ttf_context.load_font(&font, 25).unwrap();
 
     let window = video_subsystem
         .window("Saphedit", SCREEN_WIDTH, SCREEN_HEIGHT)
