@@ -119,19 +119,22 @@ pub fn main() {
         }
 
         if update_text {
-            if text_buf.len() > 0 {
-                let surface = font
-                    .render(&text_buf)
-                    .blended_wrapped(Color::RGBA(255, 0, 0, 255), SCREEN_WIDTH)
-                    .unwrap();
+            let to_render = if text_buf.is_empty() {
+                " "
+            } else {
+                &text_buf
+            };
+            let surface = font
+                .render(to_render)
+                .blended_wrapped(Color::RGBA(255, 0, 0, 255), SCREEN_WIDTH)
+                .unwrap();
 
-                texture = texture_creator
-                    .create_texture_from_surface(&surface)
-                    .unwrap();
+            texture = texture_creator
+                .create_texture_from_surface(&surface)
+                .unwrap();
 
-                let TextureQuery { width, height, .. } = texture.query();
-                target = get_centered_rect(width, height, SCREEN_WIDTH, SCREEN_HEIGHT);
-            }
+            let TextureQuery { width, height, .. } = texture.query();
+            target = get_centered_rect(width, height, SCREEN_WIDTH, SCREEN_HEIGHT);
             update_text = false;
         }
 
