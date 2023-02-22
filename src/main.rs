@@ -7,7 +7,7 @@ use gl::types::{GLchar, GLenum, GLfloat, GLint, GLuint};
 use sdl2::event::Event;
 use sdl2::keyboard::{Keycode, Mod};
 
-use image;
+use image::{self, DynamicImage};
 use std::ffi::CString;
 use std::fs::read_to_string;
 use std::mem::{self, size_of, size_of_val};
@@ -84,7 +84,7 @@ pub fn main() {
             weight: Weight::Normal,
         },
     );
-    let mut rast = Rasterizer::new(30.).expect("Could not set up rasterizer");
+    let mut rast = Rasterizer::new(1.).expect("Could not set up rasterizer");
     let font_key = rast
         .load_font(&font_desc, Size::new(64.))
         .expect("Could not load font");
@@ -121,15 +121,38 @@ pub fn main() {
 
     let shader = Shader::new();
 
+    // let img = image::open("A.png").unwrap().to_rgba8();
+    let glyph_key = GlyphKey {
+        character: 'A',
+        font_key,
+        size: Size::new(150.),
+    };
+    let glyph = rast.get_glyph(glyph_key).unwrap();
     // setup program
     unsafe {
+        let top = glyph.top as f32;
+        let left = glyph.left as f32;
+        let width = glyph.width as f32;
+        let height = glyph.height as f32;
+
+        let (win_width, win_height) = window.drawable_size();
+        let sx = 1. / win_width as f32;
+        let sy = 1. / win_height as f32;
+
+        let x1 = left * sx;
+        let w = width * sx;
+        let x2 = x1 + w;
+
+        let y1 = top * sx;
+        let h = height * sy;
+        let y2 = y1 + h;
         // Safe code, but the variables aren't needed outside this block
         let vertices: [GLfloat; 32] = [
             //positions      // colours     // texture coordinates
-             1.,  1., 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, // top right
-             1., -1., 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, // bottom right
-            -1., -1., 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, // bottom left
-            -1.,  1., 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, // top left
+            x2, y2, 0.0, 1.0, 0.0, 0.0, 1., 0., // top right
+            x2, y1, 0.0, 0.0, 1.0, 0.0, 1., 1., // bottom right
+            x1, y1, 0.0, 0.0, 0.0, 1.0, 0., 1., // bottom left
+            x1, y2, 0.0, 1.0, 1.0, 0.0, 0., 0., // top left
         ];
 
         let indices = [
@@ -199,23 +222,22 @@ pub fn main() {
         gl::BindTexture(gl::TEXTURE_2D, texture1);
 
         // wrapping params
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::REPEAT as i32);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::REPEAT as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
         // filtering params
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
 
-        let img = image::open("clockworkpunt.png").unwrap().to_rgba8();
-        let pixels = img.to_vec();
+        let (pixels, fmt) = get_vec_format(glyph.buffer);
 
         gl::TexImage2D(
             gl::TEXTURE_2D,
             0,
             gl::RGBA as i32,
-            img.width() as i32,
-            img.height() as i32,
+            glyph.width as i32,
+            glyph.height as i32,
             0,
-            gl::RGBA,
+            fmt,
             gl::UNSIGNED_BYTE,
             pixels.as_ptr() as *const _,
         );
@@ -427,6 +449,18 @@ impl Shader {
             gl::Uniform1i(gl::GetUniformLocation(self.0, string.as_ptr()), val);
         }
     }
+}
+
+fn get_vec_format(buf: BitmapBuffer) -> (Vec<u8>, GLuint) {
+    let v = match buf {
+        BitmapBuffer::Rgb(v) => v
+            .chunks_exact(3)
+            .flat_map(|chunk| chunk.iter().copied().chain(Some(255)))
+            .collect(),
+        BitmapBuffer::Rgba(v) => v,
+    };
+
+    (v, gl::RGBA)
 }
 
 impl Drop for Shader {
