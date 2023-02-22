@@ -272,6 +272,7 @@ pub fn main() {
                 0.,
                 texture1,
                 window.drawable_size(),
+                50,
                 vao,
             );
             let (width, height) = window.drawable_size();
@@ -294,94 +295,9 @@ pub fn main() {
     }
 }
 
-fn render_char(
-    c: char,
-    drawable_size: (u32, u32),
-    rast: &mut Rasterizer,
-    font_key: FontKey,
-    texture1: GLuint,
-    vao: GLuint,
-    x0: f32,
-    y0: f32,
-) -> (f32, f32) {
-    let glyph_key = GlyphKey {
-        character: c,
-        font_key,
-        size: Size::new(25.),
-    };
-    let glyph = rast.get_glyph(glyph_key).unwrap();
-    let top = glyph.top as f32;
-    let left = glyph.left as f32;
-    let width = glyph.width as f32;
-    let height = glyph.height as f32;
-
-    let (win_width, win_height) = drawable_size;
-    let sx = 2.0 / win_width as f32;
-    let sy = 2.0 / win_height as f32;
-
-    let x1 = x0 + left * sx;
-    let w = width * sx;
-    let x2 = x1 + w;
-
-    let y2 = y0 + top * sy;
-    let h = height * sy;
-    let y1 = y2 - h;
-    let vertices: [GLfloat; 32] = [
-        //positions      // colours     // texture coordinates
-        x2, y2, 0.0, 1.0, 0.0, 0.0, 1., 0., // top right
-        x2, y1, 0.0, 0.0, 1.0, 0.0, 1., 1., // bottom right
-        x1, y1, 0.0, 0.0, 0.0, 1.0, 0., 1., // bottom left
-        x1, y2, 0.0, 1.0, 1.0, 0.0, 0., 0., // top left
-    ];
-    unsafe {
-        gl::BindVertexArray(vao);
-        gl::BufferData(
-            gl::ARRAY_BUFFER,
-            size_of_val(&vertices) as isize,
-            mem::transmute(&vertices),
-            gl::STATIC_DRAW,
-        );
-
-        let (pixels, fmt) = {
-            let buf = glyph.buffer;
-            let v = match buf {
-                BitmapBuffer::Rgb(v) => v
-                    .chunks_exact(3)
-                    .flat_map(|chunk| {
-                        let avg = chunk.iter().map(|c| *c as u16).sum::<u16>() / 3;
-                        [0xff, 0xff, 0xff, avg as u8]
-                    })
-                    .collect(),
-                BitmapBuffer::Rgba(v) => v,
-            };
-
-            (v, gl::RGBA)
-        };
-
-        gl::ActiveTexture(gl::TEXTURE0);
-        gl::BindTexture(gl::TEXTURE_2D, texture1);
-
-        gl::TexImage2D(
-            gl::TEXTURE_2D,
-            0,
-            gl::RGBA as i32,
-            glyph.width as i32,
-            glyph.height as i32,
-            0,
-            fmt,
-            gl::UNSIGNED_BYTE,
-            pixels.as_ptr() as *const _,
-        );
-        // gl::GenerateMipmap(gl::TEXTURE_2D);
-        gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
-    }
-
-    let (ax, ay) = glyph.advance;
-    let next_x0 = x0 + ax as f32 * sx;
-    let next_y0 = y0 + ay as f32 * sx;
-    (next_x0, next_y0)
-}
-
+// TODO: when building atlas, keep track of width of all characters (and be able
+// to predict how wide some text will be)
+// also I really need to document this kek
 fn render_text(
     text: &str,
     rast: &mut Rasterizer,
@@ -390,10 +306,85 @@ fn render_text(
     mut y0: f32,
     texture1: GLuint,
     drawable_size: (u32, u32),
+    letter_height: u32,
     vao: GLuint,
 ) {
     for c in text.chars() {
-        (x0, y0) = render_char(c, drawable_size, rast, font_key, texture1, vao, x0, y0)
+        let glyph_key = GlyphKey {
+            character: c,
+            font_key,
+            size: Size::new(letter_height as f32),
+        };
+        let glyph = rast.get_glyph(glyph_key).unwrap();
+        let top = glyph.top as f32;
+        let left = glyph.left as f32;
+        let width = glyph.width as f32;
+        let height = glyph.height as f32;
+
+        let (win_width, win_height) = drawable_size;
+        let sx = Size::factor() / win_width as f32;
+        let sy = Size::factor() / win_height as f32;
+
+        let x1 = x0 + left * sx;
+        let w = width * sx;
+        let x2 = x1 + w;
+
+        let y2 = y0 + top * sy;
+        let h = height * sy;
+        let y1 = y2 - h;
+        let vertices: [GLfloat; 32] = [
+            //positions      // colours     // texture coordinates
+            x2, y2, 0.0, 1.0, 0.0, 0.0, 1., 0., // top right
+            x2, y1, 0.0, 0.0, 1.0, 0.0, 1., 1., // bottom right
+            x1, y1, 0.0, 0.0, 0.0, 1.0, 0., 1., // bottom left
+            x1, y2, 0.0, 1.0, 1.0, 0.0, 0., 0., // top left
+        ];
+        unsafe {
+            gl::BindVertexArray(vao);
+            gl::BufferData(
+                gl::ARRAY_BUFFER,
+                size_of_val(&vertices) as isize,
+                mem::transmute(&vertices),
+                gl::STATIC_DRAW,
+            );
+
+            let (pixels, fmt) = {
+                let buf = glyph.buffer;
+                let v = match buf {
+                    BitmapBuffer::Rgb(v) => v
+                        .chunks_exact(3)
+                        .flat_map(|chunk| {
+                            let avg = chunk.iter().map(|c| *c as u16).sum::<u16>() / 3;
+                            [0xff, 0xff, 0xff, avg as u8]
+                        })
+                        .collect(),
+                    BitmapBuffer::Rgba(v) => v,
+                };
+
+                (v, gl::RGBA)
+            };
+
+            gl::ActiveTexture(gl::TEXTURE0);
+            gl::BindTexture(gl::TEXTURE_2D, texture1);
+
+            gl::TexImage2D(
+                gl::TEXTURE_2D,
+                0,
+                gl::RGBA as i32,
+                glyph.width as i32,
+                glyph.height as i32,
+                0,
+                fmt,
+                gl::UNSIGNED_BYTE,
+                pixels.as_ptr() as *const _,
+            );
+            // gl::GenerateMipmap(gl::TEXTURE_2D);
+            gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
+        }
+
+        let (ax, ay) = glyph.advance;
+        x0 += ax as f32 * sx;
+        y0 += ay as f32 * sx;
     }
 }
 
