@@ -125,7 +125,7 @@ pub fn main() {
     let glyph_key = GlyphKey {
         character: 'A',
         font_key,
-        size: Size::new(150.),
+        size: Size::new(1000.),
     };
     let glyph = rast.get_glyph(glyph_key).unwrap();
     // setup program
@@ -136,16 +136,16 @@ pub fn main() {
         let height = glyph.height as f32;
 
         let (win_width, win_height) = window.drawable_size();
-        let sx = 1. / win_width as f32;
-        let sy = 1. / win_height as f32;
+        let sx = 1.0 / win_width as f32;
+        let sy = 1.0 / win_height as f32;
 
         let x1 = left * sx;
         let w = width * sx;
         let x2 = x1 + w;
 
-        let y1 = top * sx;
+        let y2 = top * sx;
         let h = height * sy;
-        let y2 = y1 + h;
+        let y1 = y2 - h;
         // Safe code, but the variables aren't needed outside this block
         let vertices: [GLfloat; 32] = [
             //positions      // colours     // texture coordinates
