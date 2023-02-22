@@ -333,14 +333,15 @@ fn render_text(
                 gl::STATIC_DRAW,
             );
 
+            // NOTE: there seems to be a bug with the bindings, so the input
+            // array needs to be in the RGBA format
             let (pixels, fmt) = {
                 let buf = glyph.buffer;
                 let v = match buf {
                     BitmapBuffer::Rgb(v) => v
                         .chunks_exact(3)
                         .flat_map(|chunk| {
-                            let avg = chunk.iter().map(|c| *c as u16).sum::<u16>() / 3;
-                            [0xff, 0xff, 0xff, avg as u8]
+                            chunk.iter().copied().chain(Some(0xff))
                         })
                         .collect(),
                     BitmapBuffer::Rgba(v) => v,
@@ -355,7 +356,7 @@ fn render_text(
             gl::TexImage2D(
                 gl::TEXTURE_2D,
                 0,
-                gl::RGBA as i32,
+                gl::RED as i32,
                 glyph.width as i32,
                 glyph.height as i32,
                 0,
