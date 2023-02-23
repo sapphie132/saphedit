@@ -146,35 +146,24 @@ pub fn main() {
         // position attribute
         gl::VertexAttribPointer(
             0,
-            3,
+            2,
             gl::FLOAT,
             gl::FALSE,
-            8 * size_of::<GLfloat>() as i32,
+            4 * size_of::<GLfloat>() as i32,
             ptr::null(),
         );
         gl::EnableVertexAttribArray(0);
 
-        // position attribute
+        // coordinate attribute
         gl::VertexAttribPointer(
             1,
             3,
             gl::FLOAT,
             gl::FALSE,
-            8 * size_of::<GLfloat>() as i32,
-            mem::transmute(3 * size_of::<GLfloat>()),
+            4 * size_of::<GLfloat>() as i32,
+            mem::transmute(2 * size_of::<GLfloat>()),
         );
         gl::EnableVertexAttribArray(1);
-
-        // position attribute
-        gl::VertexAttribPointer(
-            2,
-            2,
-            gl::FLOAT,
-            gl::FALSE,
-            8 * size_of::<GLfloat>() as i32,
-            mem::transmute(6 * size_of::<GLfloat>()),
-        );
-        gl::EnableVertexAttribArray(2);
 
         gl::Enable(gl::BLEND);
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
@@ -194,7 +183,7 @@ pub fn main() {
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
 
         shader.r#use();
-        shader.set_int("texture1", 0);
+        shader.uniform1i("texture1", 0);
     }
 
     'running: loop {
@@ -264,12 +253,14 @@ pub fn main() {
 
             shader.r#use();
 
+            let color_black: [GLfloat; 4] = [0., 0., 0., 1.];
+            shader.uniform4vf("color", color_black);
             render_text(
                 &state.text_buffer,
                 &mut rast,
                 font_key,
-                -0.5,
-                0.,
+                -1.,
+                -1.,
                 texture1,
                 window.drawable_size(),
                 50,
@@ -277,12 +268,6 @@ pub fn main() {
             );
             let (width, height) = window.drawable_size();
             gl::Viewport(0, 0, width as i32, height as i32);
-            // gl::Clear(gl::COLOR_BUFFER_BIT);
-            // let black = [0., 0., 0., 1.];
-            // let name = CString::new("color").unwrap();
-            // let color_attr = gl::GetAttribLocation(program_id, name.as_ptr());
-            // gl::Uniform4fv(color_attr, 1, mem::transmute(&black));
-            // render_text(&state.text_buffer, &mut rast, font_key, 0., 0., 1., 1.)
         }
         window.gl_swap_window();
     }
@@ -332,12 +317,12 @@ fn render_text(
         let y2 = y0 + top * sy;
         let h = height * sy;
         let y1 = y2 - h;
-        let vertices: [GLfloat; 32] = [
-            //positions      // colours     // texture coordinates
-            x2, y2, 0.0, 1.0, 0.0, 0.0, 1., 0., // top right
-            x2, y1, 0.0, 0.0, 1.0, 0.0, 1., 1., // bottom right
-            x1, y1, 0.0, 0.0, 0.0, 1.0, 0., 1., // bottom left
-            x1, y2, 0.0, 1.0, 1.0, 0.0, 0., 0., // top left
+        let vertices: [GLfloat; 16] = [
+            //positions      // texture coordinates
+            x2, y2, 1., 0., // top right
+            x2, y1, 1., 1., // bottom right
+            x1, y1, 0., 1., // bottom left
+            x1, y2, 0., 0., // top left
         ];
         unsafe {
             gl::BindVertexArray(vao);
@@ -425,10 +410,21 @@ impl Shader {
         }
     }
 
-    fn set_int(&self, name: &str, val: i32) {
+    fn uniform1i(&self, name: &str, val: i32) {
         let string = CString::new(name).expect("Name needs to be valid ascii");
         unsafe {
             gl::Uniform1i(gl::GetUniformLocation(self.0, string.as_ptr()), val);
+        }
+    }
+
+    fn uniform4vf(&self, name: &str, val: [GLfloat; 4]) {
+        let string = CString::new(name).expect("Name needs to be valid ascii");
+        unsafe {
+            gl::Uniform4fv(
+                gl::GetUniformLocation(self.0, string.as_ptr()),
+                1,
+                val.as_ptr(),
+            );
         }
     }
 }
