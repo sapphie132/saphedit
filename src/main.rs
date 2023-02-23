@@ -99,6 +99,8 @@ pub fn main() {
         .unwrap();
 
     let _ctx = window.gl_create_context().unwrap();
+    // bye bye vsync
+    video_subsystem.gl_set_swap_interval(0).unwrap();
     gl::load_with(|name| video_subsystem.gl_get_proc_address(name) as *const _);
 
     let mut event_pump = sdl_context.event_pump().unwrap();
@@ -237,7 +239,7 @@ pub fn main() {
             state.update_text = false;
         }
 
-        if frame_counter == 512 {
+        if start.elapsed().as_secs() >= 1 {
             let fps = frame_counter as f64 / start.elapsed().as_secs_f64();
             println!("{}", fps);
             frame_counter = 0;
