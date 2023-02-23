@@ -108,11 +108,6 @@ pub fn main() {
     let mut frame_counter = 0;
     let mut start = Instant::now();
 
-    let mut state = TextState {
-        text_buffer: String::new(),
-        update_text: true,
-    };
-
     let mut vbo = 0;
     let mut vao = 0;
     let mut ebo = 0;
@@ -188,6 +183,11 @@ pub fn main() {
         shader.uniform1i("texture1", 0);
     }
 
+    let mut screen_size = window.drawable_size();
+    let mut state = TextState {
+        text_buffer: String::new(),
+        update_text: true,
+    };
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
@@ -235,21 +235,41 @@ pub fn main() {
             }
         }
 
-        if state.update_text {
-            state.update_text = false;
-        }
-
+        // fps tracking
         if start.elapsed().as_secs() >= 1 {
             let fps = frame_counter as f64 / start.elapsed().as_secs_f64();
-            println!("{}", fps);
+            println!("running at {:.2} fps", fps);
             frame_counter = 0;
             start = Instant::now();
         }
-
         frame_counter += 1;
 
-        // draw
+        // Update screen size
+        let new_screen_size = window.drawable_size();
+        let mut resized = new_screen_size != screen_size;
+        screen_size = new_screen_size;
+
+        let needs_redraw = {
+            let impacts_redraw = [&mut state.update_text, &mut resized];
+            let mut needs_redraw = false;
+            for v in impacts_redraw {
+                needs_redraw |= *v;
+                *v = false;
+            }
+            needs_redraw
+        };
+
+        // Dear Princess Celestia
+        // I fucking hate indentation
+        // Your faithful student
+        // Twinkle Springle
+        if !needs_redraw {
+            continue;
+        }
+
         unsafe {
+            let (width, height) = screen_size;
+            gl::Viewport(0, 0, width as i32, height as i32);
             gl::ClearColor(0.2, 0.3, 0.3, 1.);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
@@ -264,12 +284,10 @@ pub fn main() {
                 -1.,
                 -1.,
                 texture1,
-                window.drawable_size(),
+                screen_size,
                 50,
                 vao,
             );
-            let (width, height) = window.drawable_size();
-            gl::Viewport(0, 0, width as i32, height as i32);
         }
         window.gl_swap_window();
     }
@@ -342,9 +360,7 @@ fn render_text(
                 let v = match buf {
                     BitmapBuffer::Rgb(v) => v
                         .chunks_exact(3)
-                        .flat_map(|chunk| {
-                            chunk.iter().copied().chain(Some(0xff))
-                        })
+                        .flat_map(|chunk| chunk.iter().copied().chain(Some(0xff)))
                         .collect(),
                     BitmapBuffer::Rgba(v) => v,
                 };
