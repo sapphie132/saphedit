@@ -11,6 +11,7 @@ void main()
 	vec2 screenPos = aPos / screenSize;
 	screenPos *= scale;
 	screenPos.x -= 1.0;
+	screenPos.y *= -1.0;
 	gl_Position = vec4(screenPos, 0.0, 1.0);
 	TexCoord = vec2(aTexCoord.x, aTexCoord.y);
 }

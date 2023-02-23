@@ -257,7 +257,7 @@ pub fn main() {
         }
 
         // fps tracking
-        if start.elapsed().as_secs() >= 1 {
+        if start.elapsed().as_secs() >= 2 {
             let fps = frame_counter as f64 / start.elapsed().as_secs_f64();
             println!("running at {:.2} fps", fps);
             frame_counter = 0;
@@ -332,83 +332,90 @@ fn render_text(
     text: &str,
     rast: &mut Rasterizer,
     font_key: FontKey,
-    mut x0: f32,
-    mut y0: f32,
+    x_start: f32,
+    y_start: f32,
     texture1: GLuint,
     letter_height: u32,
     camera_scale: f32,
     vao: GLuint,
 ) {
-    for c in text.chars() {
-        let glyph_key = GlyphKey {
-            character: c,
-            font_key,
-            size: Size::new(letter_height as f32),
-        };
-        let glyph = rast.get_glyph(glyph_key).unwrap();
-        let top = glyph.top as f32;
-        let left = glyph.left as f32;
-        let width = glyph.width as f32;
-        let height = glyph.height as f32;
-
-        let sx = Size::factor() / camera_scale;
-        let sy = Size::factor() / camera_scale;
-
-        let x1 = x0 + left * sx;
-        let w = width * sx;
-        let x2 = x1 + w;
-
-        let y2 = y0 + top * sy;
-        let h = height * sy;
-        let y1 = y2 - h;
-        let vertices: [GLfloat; 16] = [
-            //positions      // texture coordinates
-            x2, y2, 1., 0., // top right
-            x2, y1, 1., 1., // bottom right
-            x1, y1, 0., 1., // bottom left
-            x1, y2, 0., 0., // top left
-        ];
-        unsafe {
-            gl::BindVertexArray(vao);
-            gl::BufferData(
-                gl::ARRAY_BUFFER,
-                size_of_val(&vertices) as isize,
-                mem::transmute(&vertices),
-                gl::STATIC_DRAW,
-            );
-
-            // NOTE: there seems to be a bug with the bindings, so the input
-            // array needs to be in the RGBA format
-            let pixels = match glyph.buffer {
-                BitmapBuffer::Rgb(v) => v
-                    .chunks_exact(3)
-                    .flat_map(|chunk| chunk.iter().copied().chain(Some(0xff)))
-                    .collect(),
-                BitmapBuffer::Rgba(v) => v,
+    let size = Size::new(letter_height as f32);
+    let line_height = letter_height as f32 * Size::factor() + 1.;
+    let mut y0 = y_start;
+    for line in text.lines() {
+        let mut x0 = x_start;
+        for c in line.chars() {
+            let glyph_key = GlyphKey {
+                character: c,
+                font_key,
+                size,
             };
-            let fmt = gl::RGBA;
+            let glyph = rast.get_glyph(glyph_key).unwrap();
+            let top = glyph.top as f32;
+            let left = glyph.left as f32;
+            let width = glyph.width as f32;
+            let height = glyph.height as f32;
 
-            gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, texture1);
+            let sx = Size::factor() / camera_scale;
+            let sy = Size::factor() / camera_scale;
 
-            gl::TexImage2D(
-                gl::TEXTURE_2D,
-                0,
-                gl::RED as i32,
-                glyph.width as i32,
-                glyph.height as i32,
-                0,
-                fmt,
-                gl::UNSIGNED_BYTE,
-                pixels.as_ptr() as *const _,
-            );
-            // gl::GenerateMipmap(gl::TEXTURE_2D);
-            gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
+            let x1 = x0 + left * sx;
+            let w = width * sx;
+            let x2 = x1 + w;
+
+            let y1 = y0 - top * sy;
+            let h = height * sy;
+            let y2 = y1 + h;
+            let vertices: [GLfloat; 16] = [
+                //positions      // texture coordinates
+                x2, y1, 1., 0., // top right
+                x2, y2, 1., 1., // bottom right
+                x1, y2, 0., 1., // bottom left
+                x1, y1, 0., 0., // top left
+            ];
+            unsafe {
+                gl::BindVertexArray(vao);
+                gl::BufferData(
+                    gl::ARRAY_BUFFER,
+                    size_of_val(&vertices) as isize,
+                    mem::transmute(&vertices),
+                    gl::STATIC_DRAW,
+                );
+
+                // NOTE: there seems to be a bug with the bindings, so the input
+                // array needs to be in the RGBA format
+                let pixels = match glyph.buffer {
+                    BitmapBuffer::Rgb(v) => v
+                        .chunks_exact(3)
+                        .flat_map(|chunk| chunk.iter().copied().chain(Some(0xff)))
+                        .collect(),
+                    BitmapBuffer::Rgba(v) => v,
+                };
+                let fmt = gl::RGBA;
+
+                gl::ActiveTexture(gl::TEXTURE0);
+                gl::BindTexture(gl::TEXTURE_2D, texture1);
+
+                gl::TexImage2D(
+                    gl::TEXTURE_2D,
+                    0,
+                    gl::RED as i32,
+                    glyph.width as i32,
+                    glyph.height as i32,
+                    0,
+                    fmt,
+                    gl::UNSIGNED_BYTE,
+                    pixels.as_ptr() as *const _,
+                );
+                // gl::GenerateMipmap(gl::TEXTURE_2D);
+                gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
+            }
+
+            let (ax, ay) = glyph.advance;
+            x0 += ax as f32 * sx;
+            y0 += ay as f32 * sx;
         }
-
-        let (ax, ay) = glyph.advance;
-        x0 += ax as f32 * sx;
-        y0 += ay as f32 * sx;
+        y0 += line_height as f32;
     }
 }
 
