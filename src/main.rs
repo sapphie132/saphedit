@@ -5,7 +5,7 @@ use crossfont::{
 };
 use gl::types::{GLchar, GLenum, GLfloat, GLint, GLuint};
 use sdl2::event::Event;
-use sdl2::keyboard::{Keycode, Mod};
+use sdl2::keyboard::{Keycode, Mod, Scancode};
 
 use std::ffi::CString;
 use std::fs::read_to_string;
@@ -188,7 +188,12 @@ pub fn main() {
         text_buffer: String::new(),
         update_text: true,
     };
+    let mut camera_scale = 1.;
+    let mut rescaled = false;
     'running: loop {
+        let kbs = event_pump.keyboard_state();
+        let ctrl_pressed =
+            kbs.is_scancode_pressed(Scancode::LCtrl) | kbs.is_scancode_pressed(Scancode::RCtrl);
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. }
@@ -221,13 +226,29 @@ pub fn main() {
                     Err(e) => eprintln!("{}", e),
                 },
                 Event::KeyDown {
+                    keycode: Some(Keycode::Num9), // horrible hack, will fix later (TODO)
+                    keymod,
+                    ..
+                } if keymod.intersects(mod_ctrl) => {
+                    camera_scale *= 1.1;
+                    rescaled = true;
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::Minus),
+                    keymod,
+                    ..
+                } if keymod.intersects(mod_ctrl) => {
+                    camera_scale /= 1.1;
+                    rescaled = true;
+                }
+                Event::KeyDown {
                     keycode: Some(Keycode::Return),
                     ..
                 } => {
                     state.text_buffer.push_str("\n");
                     state.update_text = true;
                 }
-                Event::TextInput { text, .. } => {
+                Event::TextInput { text, .. } if !ctrl_pressed => {
                     state.text_buffer += &text;
                     state.update_text = true;
                 }
@@ -250,7 +271,7 @@ pub fn main() {
         screen_size = new_screen_size;
 
         let needs_redraw = {
-            let impacts_redraw = [&mut state.update_text, &mut resized];
+            let impacts_redraw = [&mut state.update_text, &mut resized, &mut rescaled];
             let mut needs_redraw = false;
             for v in impacts_redraw {
                 needs_redraw |= *v;
@@ -277,15 +298,19 @@ pub fn main() {
 
             let color_black: [GLfloat; 4] = [0., 0., 0., 1.];
             shader.uniform4vf("color", color_black);
+            shader.uniform1f("scale", camera_scale);
+            shader.uniform2i("screenSize", [width as i32, height as i32]);
+
+            rast.update_dpr(camera_scale);
             render_text(
                 &state.text_buffer,
                 &mut rast,
                 font_key,
-                -1.,
-                -1.,
+                0.,
+                0.,
                 texture1,
-                screen_size,
                 50,
+                camera_scale,
                 vao,
             );
         }
@@ -310,8 +335,8 @@ fn render_text(
     mut x0: f32,
     mut y0: f32,
     texture1: GLuint,
-    drawable_size: (u32, u32),
     letter_height: u32,
+    camera_scale: f32,
     vao: GLuint,
 ) {
     for c in text.chars() {
@@ -326,9 +351,8 @@ fn render_text(
         let width = glyph.width as f32;
         let height = glyph.height as f32;
 
-        let (win_width, win_height) = drawable_size;
-        let sx = Size::factor() / win_width as f32;
-        let sy = Size::factor() / win_height as f32;
+        let sx = Size::factor() / camera_scale;
+        let sy = Size::factor() / camera_scale;
 
         let x1 = x0 + left * sx;
         let w = width * sx;
@@ -355,18 +379,14 @@ fn render_text(
 
             // NOTE: there seems to be a bug with the bindings, so the input
             // array needs to be in the RGBA format
-            let (pixels, fmt) = {
-                let buf = glyph.buffer;
-                let v = match buf {
-                    BitmapBuffer::Rgb(v) => v
-                        .chunks_exact(3)
-                        .flat_map(|chunk| chunk.iter().copied().chain(Some(0xff)))
-                        .collect(),
-                    BitmapBuffer::Rgba(v) => v,
-                };
-
-                (v, gl::RGBA)
+            let pixels = match glyph.buffer {
+                BitmapBuffer::Rgb(v) => v
+                    .chunks_exact(3)
+                    .flat_map(|chunk| chunk.iter().copied().chain(Some(0xff)))
+                    .collect(),
+                BitmapBuffer::Rgba(v) => v,
             };
+            let fmt = gl::RGBA;
 
             gl::ActiveTexture(gl::TEXTURE0);
             gl::BindTexture(gl::TEXTURE_2D, texture1);
@@ -430,22 +450,44 @@ impl Shader {
     }
 
     fn uniform1i(&self, name: &str, val: i32) {
-        let string = CString::new(name).expect("Name needs to be valid ascii");
+        let name = c_str(name);
         unsafe {
-            gl::Uniform1i(gl::GetUniformLocation(self.0, string.as_ptr()), val);
+            gl::Uniform1i(gl::GetUniformLocation(self.0, name.as_ptr()), val);
+        }
+    }
+
+    fn uniform1f(&self, name: &str, val: GLfloat) {
+        let name = c_str(name);
+        unsafe {
+            gl::Uniform1f(gl::GetUniformLocation(self.0, name.as_ptr()), val);
         }
     }
 
     fn uniform4vf(&self, name: &str, val: [GLfloat; 4]) {
-        let string = CString::new(name).expect("Name needs to be valid ascii");
+        let name = c_str(name);
         unsafe {
             gl::Uniform4fv(
-                gl::GetUniformLocation(self.0, string.as_ptr()),
+                gl::GetUniformLocation(self.0, name.as_ptr()),
                 1,
                 val.as_ptr(),
             );
         }
     }
+
+    fn uniform2i(&self, name: &str, val: [GLint; 2]) {
+        let name = c_str(name);
+        unsafe {
+            gl::Uniform2i(
+                gl::GetUniformLocation(self.0, name.as_ptr()),
+                val[0],
+                val[1],
+            )
+        }
+    }
+}
+
+fn c_str(name: &str) -> CString {
+    CString::new(name).expect("Name needs to be valid ascii")
 }
 
 impl Drop for Shader {
