@@ -1,8 +1,7 @@
 extern crate sdl2;
 
-use crossfont::{
-    BitmapBuffer, FontDesc, FontKey, GlyphKey, Rasterize, Rasterizer, Size, Slant, Style, Weight,
-};
+use atlas::GlyphAtlas;
+use crossfont::{FontDesc, Rasterize, Rasterizer, Size, Slant, Style, Weight};
 use gl::types::{GLchar, GLenum, GLfloat, GLint, GLuint};
 use sdl2::event::Event;
 use sdl2::keyboard::{Keycode, Mod, Scancode};
@@ -15,12 +14,13 @@ use std::str;
 use std::time::Instant;
 
 /*  To Do
-   - Fix text position and size
-
    To do eventually
    - Change font rendering
    - Add font picker
 */
+
+mod atlas;
+mod rope;
 macro_rules! log_err {
     ($e:expr) => {
         let e = $e;
@@ -41,7 +41,6 @@ macro_rules! gl_err {
             let mut len = 0;
             $iv_fun($id, $pname, &mut len);
             let mut buf = Vec::with_capacity(len as usize);
-            buf.set_len((len as usize) - 1); // subtract 1 to skip the trailing null character
             $info_fun($id, len, ptr::null_mut(), buf.as_mut_ptr() as *mut GLchar);
             panic!(
                 "{}",
@@ -84,6 +83,7 @@ pub fn main() {
     let font_key = rast
         .load_font(&font_desc, Size::new(64.))
         .expect("Could not load font");
+
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     video_subsystem.text_input().start();
@@ -154,7 +154,7 @@ pub fn main() {
         // coordinate attribute
         gl::VertexAttribPointer(
             1,
-            3,
+            2,
             gl::FLOAT,
             gl::FALSE,
             4 * size_of::<GLfloat>() as i32,
@@ -166,7 +166,7 @@ pub fn main() {
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
     };
 
-    // setup glyph atlas
+    // setup glyph atlas TODO: move this into new
     let mut texture1 = 0;
     unsafe {
         gl::GenTextures(1, &mut texture1);
@@ -182,6 +182,7 @@ pub fn main() {
         shader.r#use();
         shader.uniform1i("texture1", 0);
     }
+    let mut atlas = GlyphAtlas::new(rast, font_key, texture1).unwrap();
 
     let mut screen_size = window.drawable_size();
     let mut state = TextState {
@@ -231,6 +232,7 @@ pub fn main() {
                     ..
                 } if keymod.intersects(mod_ctrl) => {
                     camera_scale *= 1.1;
+                    println!("{camera_scale}");
                     rescaled = true;
                 }
                 Event::KeyDown {
@@ -301,15 +303,13 @@ pub fn main() {
             shader.uniform1f("scale", camera_scale);
             shader.uniform2i("screenSize", [width as i32, height as i32]);
 
-            rast.update_dpr(camera_scale);
+            // rast.update_dpr(camera_scale); TODO: add me back (somewher)
             render_text(
                 &state.text_buffer,
-                &mut rast,
-                font_key,
+                &mut atlas,
                 0.,
                 0.,
                 texture1,
-                50,
                 camera_scale,
                 vao,
             );
@@ -330,49 +330,25 @@ pub fn main() {
 // also I really need to document this kek
 fn render_text(
     text: &str,
-    rast: &mut Rasterizer,
-    font_key: FontKey,
+    atlas: &mut GlyphAtlas,
     x_start: f32,
     y_start: f32,
     texture1: GLuint,
-    letter_height: u32,
     camera_scale: f32,
     vao: GLuint,
 ) {
-    let size = Size::new(letter_height as f32);
-    let line_height = letter_height as f32 * Size::factor() + 1.;
+    let letter_height = 64.;
+    let line_height = letter_height as f32 * Size::factor();
+
+    atlas.add_characters(text.chars(), texture1);
     let mut y0 = y_start;
     for line in text.lines() {
         let mut x0 = x_start;
         for c in line.chars() {
-            let glyph_key = GlyphKey {
-                character: c,
-                font_key,
-                size,
-            };
-            let glyph = rast.get_glyph(glyph_key).unwrap();
-            let top = glyph.top as f32;
-            let left = glyph.left as f32;
-            let width = glyph.width as f32;
-            let height = glyph.height as f32;
-
             let sx = Size::factor() / camera_scale;
             let sy = Size::factor() / camera_scale;
 
-            let x1 = x0 + left * sx;
-            let w = width * sx;
-            let x2 = x1 + w;
-
-            let y1 = y0 - top * sy;
-            let h = height * sy;
-            let y2 = y1 + h;
-            let vertices: [GLfloat; 16] = [
-                //positions      // texture coordinates
-                x2, y1, 1., 0., // top right
-                x2, y2, 1., 1., // bottom right
-                x1, y2, 0., 1., // bottom left
-                x1, y1, 0., 0., // top left
-            ];
+            let (vertices, ax, ay) = atlas.get_glyph_data(c, x0, y0, sx, sy);
             unsafe {
                 gl::BindVertexArray(vao);
                 gl::BufferData(
@@ -382,36 +358,10 @@ fn render_text(
                     gl::STATIC_DRAW,
                 );
 
-                // NOTE: there seems to be a bug with the bindings, so the input
-                // array needs to be in the RGBA format
-                let pixels = match glyph.buffer {
-                    BitmapBuffer::Rgb(v) => v
-                        .chunks_exact(3)
-                        .flat_map(|chunk| chunk.iter().copied().chain(Some(0xff)))
-                        .collect(),
-                    BitmapBuffer::Rgba(v) => v,
-                };
-                let fmt = gl::RGBA;
-
-                gl::ActiveTexture(gl::TEXTURE0);
-                gl::BindTexture(gl::TEXTURE_2D, texture1);
-
-                gl::TexImage2D(
-                    gl::TEXTURE_2D,
-                    0,
-                    gl::RED as i32,
-                    glyph.width as i32,
-                    glyph.height as i32,
-                    0,
-                    fmt,
-                    gl::UNSIGNED_BYTE,
-                    pixels.as_ptr() as *const _,
-                );
                 // gl::GenerateMipmap(gl::TEXTURE_2D);
                 gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
             }
 
-            let (ax, ay) = glyph.advance;
             x0 += ax as f32 * sx;
             y0 += ay as f32 * sx;
         }

@@ -8,7 +8,8 @@ out vec2 TexCoord;
 
 void main()
 {
-	vec2 screenPos = aPos / screenSize;
+	vec2 screenPos = aPos;
+	screenPos /= screenSize;
 	screenPos *= scale;
 	screenPos.x -= 1.0;
 	screenPos.y *= -1.0;
