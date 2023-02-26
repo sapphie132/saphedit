@@ -184,14 +184,11 @@ pub fn main() {
     }
 
     let mut screen_size = window.drawable_size();
-    let mut state = TextState {
-        text_buffer: String::new(),
-        update_text: true,
-    };
+    let mut text_buffer = String::new();
     let mut camera_scale = 128;
     let mut atlas = GlyphAtlas::new(&mut rast, font_key, texture1, camera_scale).unwrap();
-    let mut rescaled = false;
     'running: loop {
+        let mut state = UpdateState::new();
         let kbs = event_pump.keyboard_state();
         let ctrl_pressed =
             kbs.is_scancode_pressed(Scancode::LCtrl) | kbs.is_scancode_pressed(Scancode::RCtrl);
@@ -206,14 +203,14 @@ pub fn main() {
                     keycode: Some(Keycode::Backspace),
                     ..
                 } => {
-                    state.update_text |= state.text_buffer.pop().is_some();
+                    state.text |= text_buffer.pop().is_some();
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::C),
                     keymod,
                     ..
                 } if keymod.intersects(mod_ctrl) => {
-                    log_err!(clipboard.set_clipboard_text(&state.text_buffer));
+                    log_err!(clipboard.set_clipboard_text(&text_buffer));
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::V),
@@ -221,38 +218,21 @@ pub fn main() {
                     ..
                 } if keymod.intersects(mod_ctrl) => match clipboard.clipboard_text() {
                     Ok(t) => {
-                        state.text_buffer += &t;
-                        state.update_text = true;
+                        text_buffer += &t;
+                        state.text = true;
                     }
                     Err(e) => eprintln!("{}", e),
                 },
                 Event::KeyDown {
-                    keycode: Some(Keycode::Num9), // horrible hack, will fix later (TODO)
-                    keymod,
-                    ..
-                } if keymod.intersects(mod_ctrl) => {
-                    camera_scale += 1;
-                    println!("{camera_scale}");
-                    rescaled = true;
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Minus),
-                    keymod,
-                    ..
-                } if keymod.intersects(mod_ctrl) => {
-                    camera_scale -= 1;
-                    rescaled = true;
-                }
-                Event::KeyDown {
                     keycode: Some(Keycode::Return),
                     ..
                 } => {
-                    state.text_buffer.push_str("\n");
-                    state.update_text = true;
+                    text_buffer.push_str("\n");
+                    state.text = true;
                 }
                 Event::TextInput { text, .. } if !ctrl_pressed => {
-                    state.text_buffer += &text;
-                    state.update_text = true;
+                    text_buffer += &text;
+                    state.text = true;
                 }
                 _ => {}
             }
@@ -268,39 +248,29 @@ pub fn main() {
 
         // Update screen size
         let new_screen_size = window.drawable_size();
-        let mut resized = new_screen_size != screen_size;
+        state.resize = new_screen_size != screen_size;
         screen_size = new_screen_size;
 
         // Update text size
-        if state.update_text {
+        if state.text {
             let old_scale = camera_scale;
-            let (text_w, text_h) = atlas.measure_dims(state.text_buffer.chars());
+            let (text_w, text_h) = atlas.measure_dims(text_buffer.chars());
             let scale_x = new_screen_size.0 as f32 / text_w;
             let scale_y = new_screen_size.1 as f32 / text_h;
             let new_scale = scale_x.min(scale_y).max(8.).min(1024.);
             camera_scale = new_scale.floor() as u32;
-            rescaled |= camera_scale != old_scale;
+            state.rescale |= camera_scale != old_scale;
         }
 
-        if rescaled {
+        if state.rescale {
             atlas = GlyphAtlas::new(&mut rast, font_key, texture1, camera_scale).unwrap();
         }
-
-        let needs_redraw = {
-            let impacts_redraw = [&mut state.update_text, &mut resized, &mut rescaled];
-            let mut needs_redraw = false;
-            for v in impacts_redraw {
-                needs_redraw |= *v;
-                *v = false;
-            }
-            needs_redraw
-        };
 
         // Dear Princess Celestia
         // I fucking hate indentation
         // Your faithful student
         // Twinkle Springle
-        if !needs_redraw {
+        if !state.needs_redraw() {
             continue;
         }
 
@@ -318,7 +288,7 @@ pub fn main() {
             shader.uniform2i("screenSize", [width as i32, height as i32]);
 
             // rast.update_dpr(camera_scale); TODO: add me back (somewher)
-            render_text(&state.text_buffer, &mut atlas, 0., 0., texture1, vao, &mut rast);
+            render_text(&text_buffer, &mut atlas, 0., 0., texture1, vao, &mut rast);
         }
         window.gl_swap_window();
     }
@@ -341,7 +311,7 @@ fn render_text(
     y_start: f32,
     texture1: GLuint,
     vao: GLuint,
-    rast: &mut Rasterizer
+    rast: &mut Rasterizer,
 ) {
     let letter_height = 64.;
     // TODO: adjust for scale
@@ -373,9 +343,30 @@ fn render_text(
     }
 }
 
-struct TextState {
-    text_buffer: String,
-    update_text: bool,
+#[repr(C, packed)]
+struct UpdateState {
+    text: bool,
+    resize: bool,
+    rescale: bool,
+}
+
+impl UpdateState {
+    fn new() -> Self {
+        // safety: 0 is a valid value for all booleans
+        unsafe { mem::zeroed() }
+    }
+
+    fn needs_redraw(self) -> bool {
+        // horrible fucking hack
+        // safety: struct is packed, so each boolean gets its own byte
+        let as_array: [bool; size_of::<Self>()] = unsafe { mem::transmute(self) };
+
+        as_array
+            .iter()
+            .copied()
+            .reduce(|a, b| a | b)
+            .expect("Array can't be empty")
+    }
 }
 
 struct Shader(GLuint);
