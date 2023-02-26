@@ -70,6 +70,7 @@ fn compile_shader(src: &str, ty: GLenum) -> u32 {
 
 const VS_SRC_PATH: &str = "src/shaders/vertex.glsl";
 const FS_SRC_PATH: &str = "src/shaders/fragment.glsl";
+const REDRAW_EVERY: u64 = 1 << 10;
 
 pub fn main() {
     let font_desc = FontDesc::new(
@@ -105,7 +106,6 @@ pub fn main() {
 
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mod_ctrl: Mod = Mod::LCTRLMOD | Mod::RCTRLMOD;
-    let mut frame_counter = 0;
     let mut start = Instant::now();
 
     let mut vbo = 0;
@@ -187,7 +187,8 @@ pub fn main() {
     let mut text_buffer = String::new();
     let mut camera_scale = 128;
     let mut atlas = GlyphAtlas::new(&mut rast, font_key, texture1, camera_scale).unwrap();
-    'running: loop {
+    let mut last_recorded_frame = 0;
+    'running: for frame_counter in 0..  {
         let mut state = UpdateState::new();
         let kbs = event_pump.keyboard_state();
         let ctrl_pressed =
@@ -239,12 +240,15 @@ pub fn main() {
         }
         // fps tracking
         if start.elapsed().as_secs() >= 2 {
-            let fps = frame_counter as f64 / start.elapsed().as_secs_f64();
-            println!("running at {:.2} fps", fps);
-            frame_counter = 0;
+            let elapsed_frames = frame_counter - last_recorded_frame;
+            let fps = elapsed_frames as f64 / start.elapsed().as_secs_f64();
+            println!("Running at {fps:.0} fps");
+            last_recorded_frame = frame_counter;
             start = Instant::now();
         }
-        frame_counter += 1;
+
+        // Timed redraw
+        state.timed = frame_counter % REDRAW_EVERY == 0;
 
         // Update screen size
         let new_screen_size = window.drawable_size();
@@ -348,6 +352,7 @@ struct UpdateState {
     text: bool,
     resize: bool,
     rescale: bool,
+    timed: bool,
 }
 
 impl UpdateState {
