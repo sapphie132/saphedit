@@ -68,7 +68,12 @@ impl GlyphAtlas {
         self.pixel_buffer.len() / self.buffer_width
     }
 
-    pub fn add_characters<I: Iterator<Item = char>>(&mut self, chars: I, texture1: GLuint, rast: &mut Rasterizer) {
+    pub fn add_characters<I: Iterator<Item = char>>(
+        &mut self,
+        chars: I,
+        texture1: GLuint,
+        rast: &mut Rasterizer,
+    ) {
         let num_glyphs_before = self.glyphs.len();
         for c in chars {
             if self.glyphs.contains_key(&c) {
