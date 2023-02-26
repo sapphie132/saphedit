@@ -81,7 +81,7 @@ pub fn main() {
     );
     let mut rast = Rasterizer::new(1.).expect("Could not set up rasterizer");
     let font_key = rast
-        .load_font(&font_desc, Size::new(64.))
+        .load_font(&font_desc, Size::new(0.))
         .expect("Could not load font");
 
     let sdl_context = sdl2::init().unwrap();
@@ -182,14 +182,14 @@ pub fn main() {
         shader.r#use();
         shader.uniform1i("texture1", 0);
     }
-    let mut atlas = GlyphAtlas::new(rast, font_key, texture1).unwrap();
 
     let mut screen_size = window.drawable_size();
     let mut state = TextState {
         text_buffer: String::new(),
         update_text: true,
     };
-    let mut camera_scale = 1.;
+    let mut camera_scale = 128;
+    let mut atlas = GlyphAtlas::new(rast, font_key, texture1, camera_scale).unwrap();
     let mut rescaled = false;
     'running: loop {
         let kbs = event_pump.keyboard_state();
@@ -231,7 +231,7 @@ pub fn main() {
                     keymod,
                     ..
                 } if keymod.intersects(mod_ctrl) => {
-                    camera_scale *= 1.1;
+                    camera_scale += 1;
                     println!("{camera_scale}");
                     rescaled = true;
                 }
@@ -240,7 +240,7 @@ pub fn main() {
                     keymod,
                     ..
                 } if keymod.intersects(mod_ctrl) => {
-                    camera_scale /= 1.1;
+                    camera_scale -= 1;
                     rescaled = true;
                 }
                 Event::KeyDown {
@@ -300,7 +300,7 @@ pub fn main() {
 
             let color_black: [GLfloat; 4] = [0., 0., 0., 1.];
             shader.uniform4vf("color", color_black);
-            shader.uniform1f("scale", camera_scale);
+            shader.uniform1f("scale", camera_scale as f32);
             shader.uniform2i("screenSize", [width as i32, height as i32]);
 
             // rast.update_dpr(camera_scale); TODO: add me back (somewher)
@@ -310,7 +310,6 @@ pub fn main() {
                 0.,
                 0.,
                 texture1,
-                camera_scale,
                 vao,
             );
         }
@@ -334,10 +333,10 @@ fn render_text(
     x_start: f32,
     y_start: f32,
     texture1: GLuint,
-    camera_scale: f32,
     vao: GLuint,
 ) {
     let letter_height = 64.;
+    // TODO: adjust for scale
     let line_height = letter_height as f32 * Size::factor();
 
     atlas.add_characters(text.chars(), texture1);
@@ -345,10 +344,7 @@ fn render_text(
     for line in text.lines() {
         let mut x0 = x_start;
         for c in line.chars() {
-            let sx = Size::factor() / camera_scale;
-            let sy = Size::factor() / camera_scale;
-
-            let (vertices, ax, ay) = atlas.get_glyph_data(c, x0, y0, sx, sy);
+            let (vertices, ax, ay) = atlas.get_glyph_data(c, x0, y0);
             unsafe {
                 gl::BindVertexArray(vao);
                 gl::BufferData(
@@ -362,8 +358,8 @@ fn render_text(
                 gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
             }
 
-            x0 += ax as f32 * sx;
-            y0 += ay as f32 * sx;
+            x0 += ax as f32;
+            y0 += ay as f32;
         }
         y0 += line_height as f32;
     }

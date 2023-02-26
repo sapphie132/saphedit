@@ -29,25 +29,25 @@ pub struct GlyphAtlas {
     /// Position of the "unknown character" glyph
     unknown_position: AtlasIndex,
     rasteriser: Rasterizer,
+    scale: f32,
 }
 
 impl GlyphAtlas {
-    /// Initial font size. The exact value doesn't matter, but this gives
-    /// decently sized text with a scale of 1.0
-    const INIT_SIZE: f32 = 128.;
-
     /// How large the internal vector's rows should be, compared to the first
     /// character generated. This is mostly to avoid having to write resizing
     /// code. And yes, 10 is absolutely overkill.
     const MAX_WIDTH_RATIO: usize = 3;
-    pub fn new(mut rasteriser: Rasterizer, font_key: FontKey, texture1: GLuint) -> Result<Self, Error> {
+    pub fn new(mut rasteriser: Rasterizer, font_key: FontKey, texture1: GLuint, camera_scale: u32) -> Result<Self, Error> {
+        rasteriser.update_dpr(camera_scale as f32);
         let glyph = get_glyph(&mut rasteriser, font_key, '?')?;
         let buffer_width = glyph.width as usize * Self::MAX_WIDTH_RATIO;
 
         let mut pixel_buffer = Vec::new();
         let unknown_position = push_pixels(glyph, &mut pixel_buffer, buffer_width);
 
+
         let mut res = Self {
+            scale: Size::factor() / camera_scale as f32,
             pixel_buffer,
             buffer_width,
             glyphs: HashMap::new(),
@@ -66,7 +66,7 @@ impl GlyphAtlas {
     }
 
     pub fn add_characters<I: Iterator<Item = char>>(&mut self, chars: I, texture1: GLuint) {
-        let orig_size = self.glyphs.len();
+        let num_glyphs_before = self.glyphs.len();
         for c in chars {
             if self.glyphs.contains_key(&c) {
                 continue;
@@ -84,7 +84,7 @@ impl GlyphAtlas {
             self.glyphs.insert(c, glyph_info);
         }
 
-        if orig_size != self.glyphs.len() {
+        if num_glyphs_before != self.glyphs.len() {
             unsafe {
                 self.upload_texture(texture1)
             }
@@ -125,9 +125,7 @@ impl GlyphAtlas {
         c: char,
         x0: GLfloat,
         y0: GLfloat,
-        sx: GLfloat,
-        sy: GLfloat,
-    ) -> ([[GLfloat; 4]; 4], i32, i32) {
+    ) -> ([[GLfloat; 4]; 4], f32, f32) {
         let pos = self.glyphs.get(&c).unwrap_or(&self.unknown_position);
 
         let top = pos.top as f32;
@@ -135,12 +133,12 @@ impl GlyphAtlas {
         let width = pos.width as f32;
         let height = pos.height as f32;
 
-        let x1 = x0 + left * sx;
-        let w = width * sx;
+        let x1 = x0 + left * self.scale;
+        let w = width * self.scale;
         let x2 = x1 + w;
 
-        let y1 = y0 - top * sy;
-        let h = height * sy;
+        let y1 = y0 - top * self.scale;
+        let h = height * self.scale;
         let y2 = y1 + h;
 
         let num_lines = (self.pixel_buffer.len() / self.buffer_width) as f32;
@@ -158,7 +156,10 @@ impl GlyphAtlas {
             [x1, y1, s_left, t_top],     // top left
         ];
 
-        (verts, pos.ax, pos.ay)
+        let ax = pos.ax as f32 * self.scale;
+        let ay = pos.ay as f32 * self.scale;
+
+        (verts, ax, ay)
     }
 }
 
@@ -166,7 +167,7 @@ fn get_glyph(rasteriser: &mut Rasterizer, font_key: FontKey, c: char) -> Result<
     let glyph_key = GlyphKey {
         character: c,
         font_key,
-        size: Size::new(GlyphAtlas::INIT_SIZE),
+        size: Size::new(1.),
     };
     rasteriser.get_glyph(glyph_key)
 }
