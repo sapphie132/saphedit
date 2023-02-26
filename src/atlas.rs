@@ -12,12 +12,12 @@ struct RGBA([u8; 4]);
 #[derive(Clone, Copy)]
 struct AtlasIndex {
     y_index: usize,
-    top: usize,
-    left: usize,
-    width: usize,
-    height: usize,
-    ax: i32,
-    ay: i32,
+    top: f32,
+    left: f32,
+    width: f32,
+    height: f32,
+    ax: f32,
+    ay: f32,
 }
 
 pub struct GlyphAtlas {
@@ -37,17 +37,22 @@ impl GlyphAtlas {
     /// character generated. This is mostly to avoid having to write resizing
     /// code. And yes, 10 is absolutely overkill.
     const MAX_WIDTH_RATIO: usize = 3;
-    pub fn new(mut rasteriser: Rasterizer, font_key: FontKey, texture1: GLuint, camera_scale: u32) -> Result<Self, Error> {
+    pub fn new(
+        mut rasteriser: Rasterizer,
+        font_key: FontKey,
+        texture1: GLuint,
+        camera_scale: u32,
+    ) -> Result<Self, Error> {
         rasteriser.update_dpr(camera_scale as f32);
         let glyph = get_glyph(&mut rasteriser, font_key, '?')?;
         let buffer_width = glyph.width as usize * Self::MAX_WIDTH_RATIO;
 
         let mut pixel_buffer = Vec::new();
-        let unknown_position = push_pixels(glyph, &mut pixel_buffer, buffer_width);
-
+        let scale = Size::factor() / camera_scale as f32;
+        let unknown_position = push_pixels(glyph, &mut pixel_buffer, buffer_width, scale);
 
         let mut res = Self {
-            scale: Size::factor() / camera_scale as f32,
+            scale,
             pixel_buffer,
             buffer_width,
             glyphs: HashMap::new(),
@@ -80,16 +85,14 @@ impl GlyphAtlas {
                 Ok(g) => g,
             };
 
-            let glyph_info = push_pixels(glyph, &mut self.pixel_buffer, self.buffer_width);
+            let glyph_info =
+                push_pixels(glyph, &mut self.pixel_buffer, self.buffer_width, self.scale);
             self.glyphs.insert(c, glyph_info);
         }
 
         if num_glyphs_before != self.glyphs.len() {
-            unsafe {
-                self.upload_texture(texture1)
-            }
+            unsafe { self.upload_texture(texture1) }
         }
-
     }
 
     // TODO: remove this function (and integrate it somewhere else)
@@ -120,6 +123,12 @@ impl GlyphAtlas {
         );
     }
 
+    pub fn measure_dims<I: Iterator<Item = char>>(&self, chars: I) -> (f32, f32) {
+        chars
+            .map(|c| self.glyphs.get(&c).unwrap_or(&self.unknown_position))
+            .fold((0.0, 0.0), |(x, y), g| (x + g.ax, y + g.ay))
+    }
+
     pub fn get_glyph_data(
         &self,
         c: char,
@@ -133,20 +142,19 @@ impl GlyphAtlas {
         let width = pos.width as f32;
         let height = pos.height as f32;
 
-        let x1 = x0 + left * self.scale;
-        let w = width * self.scale;
-        let x2 = x1 + w;
+        let x1 = x0 + left;
+        let x2 = x1 + width;
 
-        let y1 = y0 - top * self.scale;
-        let h = height * self.scale;
-        let y2 = y1 + h;
+        let y1 = y0 - top;
+        let y2 = y1 + height;
 
         let num_lines = (self.pixel_buffer.len() / self.buffer_width) as f32;
         let t_top = pos.y_index as f32 / num_lines;
-        let t_bottom = t_top + height / num_lines;
+        // TODO: find a less awkward way to do this
+        let t_bottom = t_top + height / self.scale / num_lines;
 
         let s_left = 0.;
-        let s_right = width / self.buffer_width as f32;
+        let s_right = width / self.scale / self.buffer_width as f32;
 
         let verts = [
             //positions      // texture coordinates
@@ -156,14 +164,15 @@ impl GlyphAtlas {
             [x1, y1, s_left, t_top],     // top left
         ];
 
-        let ax = pos.ax as f32 * self.scale;
-        let ay = pos.ay as f32 * self.scale;
-
-        (verts, ax, ay)
+        (verts, pos.ax, pos.ay)
     }
 }
 
-fn get_glyph(rasteriser: &mut Rasterizer, font_key: FontKey, c: char) -> Result<RasterizedGlyph, Error> {
+fn get_glyph(
+    rasteriser: &mut Rasterizer,
+    font_key: FontKey,
+    c: char,
+) -> Result<RasterizedGlyph, Error> {
     let glyph_key = GlyphKey {
         character: c,
         font_key,
@@ -194,6 +203,7 @@ fn push_pixels(
     glyph: RasterizedGlyph,
     pixel_buffer: &mut Vec<RGBA>,
     buffer_width: usize,
+    scale: f32,
 ) -> AtlasIndex {
     // Transform into rgba (there is a bug with opengl that treats all
     // input textures as rgba)
@@ -218,12 +228,12 @@ fn push_pixels(
     pixel_buffer.extend(new_pixels);
     let (ax, ay) = glyph.advance;
     AtlasIndex {
-        y_index: y_index,
-        top: glyph.top as usize,
-        left: glyph.left as usize,
-        width: glyph.width as usize,
-        height: glyph.height as usize,
-        ax,
-        ay,
+        y_index,
+        top: glyph.top as f32 * scale,
+        left: glyph.left as f32 * scale,
+        width: glyph.width as f32 * scale,
+        height: glyph.height as f32 * scale,
+        ax: ax as f32 * scale,
+        ay: ay as f32 * scale,
     }
 }
