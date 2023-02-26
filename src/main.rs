@@ -257,7 +257,6 @@ pub fn main() {
                 _ => {}
             }
         }
-
         // fps tracking
         if start.elapsed().as_secs() >= 2 {
             let fps = frame_counter as f64 / start.elapsed().as_secs_f64();
@@ -271,6 +270,16 @@ pub fn main() {
         let new_screen_size = window.drawable_size();
         let mut resized = new_screen_size != screen_size;
         screen_size = new_screen_size;
+
+        // Update text size
+        if state.update_text {
+            let (text_w, text_h) = atlas.measure_dims(state.text_buffer.chars());
+            let scale_x = new_screen_size.0 as f32 / text_w;
+            let scale_y = new_screen_size.1 as f32 / text_h;
+            let new_scale = scale_x.min(scale_y).max(8.).min(128.);
+            camera_scale = new_scale.floor() as u32;
+            rescaled = true;
+        }
 
         let needs_redraw = {
             let impacts_redraw = [&mut state.update_text, &mut resized, &mut rescaled];
@@ -304,14 +313,7 @@ pub fn main() {
             shader.uniform2i("screenSize", [width as i32, height as i32]);
 
             // rast.update_dpr(camera_scale); TODO: add me back (somewher)
-            render_text(
-                &state.text_buffer,
-                &mut atlas,
-                0.,
-                0.,
-                texture1,
-                vao,
-            );
+            render_text(&state.text_buffer, &mut atlas, 0., 0., texture1, vao);
         }
         window.gl_swap_window();
     }
