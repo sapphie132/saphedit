@@ -28,7 +28,6 @@ pub struct GlyphAtlas {
     font_key: FontKey,
     /// Position of the "unknown character" glyph
     unknown_position: AtlasIndex,
-    rasteriser: Rasterizer,
     scale: f32,
 }
 
@@ -38,13 +37,13 @@ impl GlyphAtlas {
     /// code. And yes, 10 is absolutely overkill.
     const MAX_WIDTH_RATIO: usize = 3;
     pub fn new(
-        mut rasteriser: Rasterizer,
+        rasteriser: &mut Rasterizer,
         font_key: FontKey,
         texture1: GLuint,
         camera_scale: u32,
     ) -> Result<Self, Error> {
         rasteriser.update_dpr(camera_scale as f32);
-        let glyph = get_glyph(&mut rasteriser, font_key, '?')?;
+        let glyph = get_glyph(rasteriser, font_key, '?')?;
         let buffer_width = glyph.width as usize * Self::MAX_WIDTH_RATIO;
 
         let mut pixel_buffer = Vec::new();
@@ -58,11 +57,10 @@ impl GlyphAtlas {
             glyphs: HashMap::new(),
             font_key,
             unknown_position,
-            rasteriser,
         };
 
         let printable_ascii = (32..127_u8).map(|b| b as char);
-        res.add_characters(printable_ascii, texture1);
+        res.add_characters(printable_ascii, texture1, rasteriser);
 
         Ok(res)
     }
@@ -70,14 +68,14 @@ impl GlyphAtlas {
         self.pixel_buffer.len() / self.buffer_width
     }
 
-    pub fn add_characters<I: Iterator<Item = char>>(&mut self, chars: I, texture1: GLuint) {
+    pub fn add_characters<I: Iterator<Item = char>>(&mut self, chars: I, texture1: GLuint, rast: &mut Rasterizer) {
         let num_glyphs_before = self.glyphs.len();
         for c in chars {
             if self.glyphs.contains_key(&c) {
                 continue;
             }
 
-            let glyph = match get_glyph(&mut self.rasteriser, self.font_key, c) {
+            let glyph = match get_glyph(rast, self.font_key, c) {
                 Err(e) => {
                     eprintln!("Couldn't rasterise character {c}: {e}");
                     return;

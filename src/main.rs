@@ -189,7 +189,7 @@ pub fn main() {
         update_text: true,
     };
     let mut camera_scale = 128;
-    let mut atlas = GlyphAtlas::new(rast, font_key, texture1, camera_scale).unwrap();
+    let mut atlas = GlyphAtlas::new(&mut rast, font_key, texture1, camera_scale).unwrap();
     let mut rescaled = false;
     'running: loop {
         let kbs = event_pump.keyboard_state();
@@ -273,12 +273,17 @@ pub fn main() {
 
         // Update text size
         if state.update_text {
+            let old_scale = camera_scale;
             let (text_w, text_h) = atlas.measure_dims(state.text_buffer.chars());
             let scale_x = new_screen_size.0 as f32 / text_w;
             let scale_y = new_screen_size.1 as f32 / text_h;
-            let new_scale = scale_x.min(scale_y).max(8.).min(128.);
+            let new_scale = scale_x.min(scale_y).max(8.).min(1024.);
             camera_scale = new_scale.floor() as u32;
-            rescaled = true;
+            rescaled |= camera_scale != old_scale;
+        }
+
+        if rescaled {
+            atlas = GlyphAtlas::new(&mut rast, font_key, texture1, camera_scale).unwrap();
         }
 
         let needs_redraw = {
@@ -313,7 +318,7 @@ pub fn main() {
             shader.uniform2i("screenSize", [width as i32, height as i32]);
 
             // rast.update_dpr(camera_scale); TODO: add me back (somewher)
-            render_text(&state.text_buffer, &mut atlas, 0., 0., texture1, vao);
+            render_text(&state.text_buffer, &mut atlas, 0., 0., texture1, vao, &mut rast);
         }
         window.gl_swap_window();
     }
@@ -336,12 +341,13 @@ fn render_text(
     y_start: f32,
     texture1: GLuint,
     vao: GLuint,
+    rast: &mut Rasterizer
 ) {
     let letter_height = 64.;
     // TODO: adjust for scale
     let line_height = letter_height as f32 * Size::factor();
 
-    atlas.add_characters(text.chars(), texture1);
+    atlas.add_characters(text.chars(), texture1, rast);
     let mut y0 = y_start;
     for line in text.lines() {
         let mut x0 = x_start;
