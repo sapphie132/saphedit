@@ -48,7 +48,7 @@ impl GlyphAtlas {
         let buffer_width = glyph.width as usize * Self::MAX_WIDTH_RATIO;
 
         let mut pixel_buffer = Vec::new();
-        let scale = Size::factor() / camera_scale as f32;
+        let scale = 1. / camera_scale as f32;
         let unknown_position = push_pixels(glyph, &mut pixel_buffer, buffer_width, scale);
 
         let mut res = Self {

@@ -10,7 +10,7 @@ void main()
 {
 	vec2 screenPos = aPos;
 	screenPos /= screenSize;
-	screenPos *= scale;
+	screenPos *= 2 * scale;
 	screenPos.x -= 1.0;
 	screenPos.y *= -1.0;
 	gl_Position = vec4(screenPos, 0.0, 1.0);
