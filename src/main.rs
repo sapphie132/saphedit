@@ -317,9 +317,7 @@ fn render_text(
     vao: GLuint,
     rast: &mut Rasterizer,
 ) {
-    let letter_height = 64.;
-    // TODO: adjust for scale
-    let line_height = letter_height as f32 * Size::factor();
+    let line_height = atlas.line_height();
 
     atlas.add_characters(text.chars(), texture1, rast);
     let mut y0 = y_start;

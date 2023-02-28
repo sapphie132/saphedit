@@ -29,6 +29,7 @@ pub struct GlyphAtlas {
     /// Position of the "unknown character" glyph
     unknown_position: AtlasIndex,
     scale: f32,
+    line_height: f32,
 }
 
 impl GlyphAtlas {
@@ -49,6 +50,7 @@ impl GlyphAtlas {
         let mut pixel_buffer = Vec::new();
         let scale = 1. / camera_scale as f32;
         let unknown_position = push_pixels(glyph, &mut pixel_buffer, buffer_width, scale);
+        let metrics = rasteriser.metrics(font_key, Size::new(1.))?;
 
         let mut res = Self {
             scale,
@@ -56,6 +58,7 @@ impl GlyphAtlas {
             buffer_width,
             glyphs: HashMap::new(),
             font_key,
+            line_height: metrics.line_height as f32 * scale,
             unknown_position,
         };
 
@@ -64,8 +67,13 @@ impl GlyphAtlas {
 
         Ok(res)
     }
+
     fn buffer_height(&self) -> usize {
         self.pixel_buffer.len() / self.buffer_width
+    }
+
+    pub fn line_height(&self) -> f32 {
+        self.line_height
     }
 
     pub fn add_characters<I: Iterator<Item = char>>(
@@ -127,9 +135,12 @@ impl GlyphAtlas {
     }
 
     pub fn measure_dims<I: Iterator<Item = char>>(&self, chars: I) -> (f32, f32) {
-        chars
+        let (w, h) = chars
+            .take_while(|c| *c != '\n')
             .map(|c| self.glyphs.get(&c).unwrap_or(&self.unknown_position))
-            .fold((0.0, 0.0), |(x, y), g| (x + g.ax, y + g.ay))
+            .fold((0.0, 0.0), |(x, y), g| (x + g.ax, y + g.ay));
+
+        (w, h + self.line_height)
     }
 
     pub fn get_glyph_data(
