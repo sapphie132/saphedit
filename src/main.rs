@@ -253,6 +253,7 @@ pub fn main() {
         // Update screen size
         let new_screen_size = window.drawable_size();
         state.resize = new_screen_size != screen_size;
+        state.rescale |= state.resize;
         screen_size = new_screen_size;
 
         // Update text size
