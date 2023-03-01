@@ -12,12 +12,12 @@ struct RGBA([u8; 4]);
 #[derive(Clone, Copy)]
 struct AtlasIndex {
     y_index: usize,
-    top: f32,
-    left: f32,
-    width: f32,
-    height: f32,
-    ax: f32,
-    ay: f32,
+    top: f64,
+    left: f64,
+    width: f64,
+    height: f64,
+    ax: f64,
+    ay: f64,
 }
 
 pub struct GlyphAtlas {
@@ -28,8 +28,8 @@ pub struct GlyphAtlas {
     font_key: FontKey,
     /// Position of the "unknown character" glyph
     unknown_position: AtlasIndex,
-    scale: f32,
-    line_height: f32,
+    scale: f64,
+    line_height: f64,
 }
 
 impl GlyphAtlas {
@@ -43,12 +43,12 @@ impl GlyphAtlas {
         texture1: GLuint,
         camera_scale: u32,
     ) -> Result<Self, Error> {
-        rasteriser.update_dpr(camera_scale as f32);
+        rasteriser.update_dpr(Size::factor() * camera_scale as f32);
         let glyph = get_glyph(rasteriser, font_key, '?')?;
         let buffer_width = glyph.width as usize * Self::MAX_WIDTH_RATIO;
 
         let mut pixel_buffer = Vec::new();
-        let scale = 1. / camera_scale as f32;
+        let scale = 1. / camera_scale as f64;
         let unknown_position = push_pixels(glyph, &mut pixel_buffer, buffer_width, scale);
         let metrics = rasteriser.metrics(font_key, Size::new(1.))?;
 
@@ -58,7 +58,7 @@ impl GlyphAtlas {
             buffer_width,
             glyphs: HashMap::new(),
             font_key,
-            line_height: metrics.line_height as f32 * scale,
+            line_height: metrics.line_height as f64 * scale,
             unknown_position,
         };
 
@@ -72,7 +72,7 @@ impl GlyphAtlas {
         self.pixel_buffer.len() / self.buffer_width
     }
 
-    pub fn line_height(&self) -> f32 {
+    pub fn line_height(&self) -> f64 {
         self.line_height
     }
 
@@ -101,6 +101,12 @@ impl GlyphAtlas {
             self.glyphs.insert(c, glyph_info);
         }
 
+        // let next_buf_height = self.buffer_height().next_power_of_two();
+        // let to_pad = next_buf_height - self.buffer_height();
+        // self.pixel_buffer.extend(repeat(RGBA([0; 4])).take(self.buffer_width * to_pad));
+
+        // assert!(self.buffer_height().is_power_of_two(), "{}", self.buffer_height());
+
         if num_glyphs_before != self.glyphs.len() {
             unsafe { self.upload_texture(texture1) }
         }
@@ -121,6 +127,7 @@ impl GlyphAtlas {
 
         assert!(fl == 4 * self.pixel_buffer.len());
 
+        // TODO: make sure buffer height doesn't go above gl::MAX_TEX_LAYERs or somn
         gl::TexImage2D(
             gl::TEXTURE_2D,
             0,
@@ -134,7 +141,7 @@ impl GlyphAtlas {
         );
     }
 
-    pub fn measure_dims<I: Iterator<Item = char>>(&self, chars: I) -> (f32, f32) {
+    pub fn measure_dims<I: Iterator<Item = char>>(&self, chars: I) -> (f64, f64) {
         let (w, h) = chars
             .take_while(|c| *c != '\n')
             .map(|c| self.glyphs.get(&c).unwrap_or(&self.unknown_position))
@@ -146,15 +153,15 @@ impl GlyphAtlas {
     pub fn get_glyph_data(
         &self,
         c: char,
-        x0: GLfloat,
-        y0: GLfloat,
-    ) -> ([[GLfloat; 4]; 4], f32, f32) {
+        x0: f64,
+        y0: f64,
+    ) -> ([[GLfloat; 4]; 4], f64, f64) {
         let pos = self.glyphs.get(&c).unwrap_or(&self.unknown_position);
 
-        let top = pos.top as f32;
-        let left = pos.left as f32;
-        let width = pos.width as f32;
-        let height = pos.height as f32;
+        let top = pos.top as f64;
+        let left = pos.left as f64;
+        let width = pos.width as f64;
+        let height = pos.height as f64;
 
         let x1 = x0 + left;
         let x2 = x1 + width;
@@ -162,20 +169,20 @@ impl GlyphAtlas {
         let y1 = y0 - top;
         let y2 = y1 + height;
 
-        let num_lines = (self.pixel_buffer.len() / self.buffer_width) as f32;
-        let t_top = pos.y_index as f32 / num_lines;
+        let num_lines = self.buffer_height() as f64;
+        let t1 = pos.y_index as f64 / num_lines;
         // TODO: find a less awkward way to do this
-        let t_bottom = t_top + height / self.scale / num_lines;
+        let t2 = t1 + (height / self.scale) / num_lines;
 
-        let s_left = 0.;
-        let s_right = width / self.scale / self.buffer_width as f32;
+        let s1 = 0.;
+        let s2 = width / self.scale / self.buffer_width as f64;
 
         let verts = [
             //positions      // texture coordinates
-            [x2, y1, s_right, t_top],    // top right
-            [x2, y2, s_right, t_bottom], // bottom right
-            [x1, y2, s_left, t_bottom],  // bottom left
-            [x1, y1, s_left, t_top],     // top left
+            [x2 as f32, y1 as f32, s2 as f32, t1 as f32], // top right
+            [x2 as f32, y2 as f32, s2 as f32, t2 as f32], // bottom right
+            [x1 as f32, y2 as f32, s1 as f32, t2 as f32], // bottom left
+            [x1 as f32, y1 as f32, s1 as f32, t1 as f32], // top left
         ];
 
         (verts, pos.ax, pos.ay)
@@ -217,7 +224,7 @@ fn push_pixels(
     glyph: RasterizedGlyph,
     pixel_buffer: &mut Vec<RGBA>,
     buffer_width: usize,
-    scale: f32,
+    scale: f64,
 ) -> AtlasIndex {
     // Transform into rgba (there is a bug with opengl that treats all
     // input textures as rgba)
@@ -240,14 +247,15 @@ fn push_pixels(
     let new_pixels: Vec<_> = expand_width(pixels, glyph.width as usize, buffer_width);
     let y_index = pixel_buffer.len() / buffer_width;
     pixel_buffer.extend(new_pixels);
+    pixel_buffer.extend(repeat(RGBA([0; 4])).take(buffer_width));
     let (ax, ay) = glyph.advance;
     AtlasIndex {
         y_index,
-        top: glyph.top as f32 * scale,
-        left: glyph.left as f32 * scale,
-        width: glyph.width as f32 * scale,
-        height: glyph.height as f32 * scale,
-        ax: ax as f32 * scale,
-        ay: ay as f32 * scale,
+        top: glyph.top as f64 * scale,
+        left: glyph.left as f64 * scale,
+        width: glyph.width as f64 * scale,
+        height: glyph.height as f64 * scale,
+        ax: ax as f64 * scale,
+        ay: ay as f64 * scale,
     }
 }

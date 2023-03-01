@@ -70,7 +70,7 @@ fn compile_shader(src: &str, ty: GLenum) -> u32 {
 
 const VS_SRC_PATH: &str = "src/shaders/vertex.glsl";
 const FS_SRC_PATH: &str = "src/shaders/fragment.glsl";
-const REDRAW_EVERY: u64 = 1 << 10;
+const REDRAW_EVERY: u64 = 1 << 30;
 
 pub fn main() {
     let font_desc = FontDesc::new(
@@ -260,10 +260,12 @@ pub fn main() {
         if state.text {
             let old_scale = camera_scale;
             let (text_w, text_h) = atlas.measure_dims(text_buffer.chars());
-            let scale_x = new_screen_size.0 as f32 / text_w;
-            let scale_y = new_screen_size.1 as f32 / text_h;
-            let new_scale = scale_x.min(scale_y).max(8.).min(1024.);
-            camera_scale = new_scale.floor() as u32;
+            let scale_x = new_screen_size.0 as f64 / text_w;
+            let scale_y = new_screen_size.1 as f64 / text_h;
+            // Empirical maximum size. It should be possible to get an actual maximum size
+            // (TODO)
+            let new_scale = scale_x.min(scale_y).max(8.).min(160.);
+            camera_scale = new_scale as u32;
             state.rescale |= camera_scale != old_scale;
         }
 
@@ -312,8 +314,8 @@ pub fn main() {
 fn render_text(
     text: &str,
     atlas: &mut GlyphAtlas,
-    x_start: f32,
-    y_start: f32,
+    x_start: f64,
+    y_start: f64,
     texture1: GLuint,
     vao: GLuint,
     rast: &mut Rasterizer,
@@ -339,10 +341,10 @@ fn render_text(
                 gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
             }
 
-            x0 += ax as f32;
-            y0 += ay as f32;
+            x0 += ax;
+            y0 += ay;
         }
-        y0 += line_height as f32;
+        y0 += line_height;
     }
 }
 
