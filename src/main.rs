@@ -71,6 +71,7 @@ fn compile_shader(src: &str, ty: GLenum) -> u32 {
 const VS_SRC_PATH: &str = "src/shaders/vertex.glsl";
 const FS_SRC_PATH: &str = "src/shaders/fragment.glsl";
 const REDRAW_EVERY: u64 = 1 << 30;
+const ANIM_TIME_S: f32 = 0.2;
 
 pub fn main() {
     let font_desc = FontDesc::new(
@@ -188,6 +189,7 @@ pub fn main() {
     let mut camera_scale = 128;
     let mut atlas = GlyphAtlas::new(&mut rast, font_key, texture1, camera_scale).unwrap();
     let mut last_recorded_frame = 0;
+    let mut previous_scale = None;
     'running: for frame_counter in 0..  {
         let mut state = UpdateState::new();
         let kbs = event_pump.keyboard_state();
@@ -265,6 +267,7 @@ pub fn main() {
             // Empirical maximum size. It should be possible to get an actual maximum size
             // (TODO)
             let new_scale = scale_x.min(scale_y).max(8.).min(160.);
+            previous_scale = Some((camera_scale as f32, Instant::now()));
             camera_scale = new_scale as u32;
             state.rescale |= camera_scale != old_scale;
         }
@@ -272,6 +275,20 @@ pub fn main() {
         if state.rescale {
             atlas = GlyphAtlas::new(&mut rast, font_key, texture1, camera_scale).unwrap();
         }
+
+        let actual_scale = if let Some((previous_camera_scale, anim_start)) = previous_scale {
+            state.animating = true;
+            let elapsed_s = anim_start.elapsed().as_secs_f32();
+            let percent_elapsed = elapsed_s / ANIM_TIME_S;
+            if percent_elapsed <= 1. {
+                (camera_scale as f32 - previous_camera_scale) * percent_elapsed +  previous_camera_scale
+            } else {
+                previous_scale = None;
+                camera_scale as f32
+            }
+        } else {
+            camera_scale as f32
+        };
 
         // Dear Princess Celestia
         // I fucking hate indentation
@@ -291,7 +308,7 @@ pub fn main() {
 
             let color_black: [GLfloat; 4] = [0., 0., 0., 1.];
             shader.uniform4vf("color", color_black);
-            shader.uniform1f("scale", camera_scale as f32);
+            shader.uniform1f("scale", actual_scale);
             shader.uniform2i("screenSize", [width as i32, height as i32]);
 
             // rast.update_dpr(camera_scale); TODO: add me back (somewher)
@@ -354,6 +371,7 @@ struct UpdateState {
     resize: bool,
     rescale: bool,
     timed: bool,
+    animating: bool,
 }
 
 impl UpdateState {
