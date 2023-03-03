@@ -71,7 +71,6 @@ fn compile_shader(src: &str, ty: GLenum) -> u32 {
 const VS_SRC_PATH: &str = "src/shaders/vertex.glsl";
 const FS_SRC_PATH: &str = "src/shaders/fragment.glsl";
 const REDRAW_EVERY: u64 = 1 << 30;
-const ANIM_TIME_S: f32 = 0.2;
 
 pub fn main() {
     let font_desc = FontDesc::new(
@@ -186,11 +185,16 @@ pub fn main() {
 
     let mut screen_size = window.drawable_size();
     let mut text_buffer = String::new();
-    let mut camera_scale = 128;
-    let mut atlas = GlyphAtlas::new(&mut rast, font_key, texture1, camera_scale).unwrap();
+    let mut last_camera_scale = 128.;
+    let mut atlas =
+        GlyphAtlas::new(&mut rast, font_key, texture1, last_camera_scale as u32).unwrap();
     let mut last_recorded_frame = 0;
-    let mut previous_scale = None;
-    'running: for frame_counter in 0..  {
+    let mut scale_animation = ScaleAnimation {
+        start,
+        start_value: last_camera_scale as f32,
+        end_value: last_camera_scale as f32,
+    };
+    'running: for frame_counter in 0.. {
         let mut state = UpdateState::new();
         let kbs = event_pump.keyboard_state();
         let ctrl_pressed =
@@ -255,40 +259,31 @@ pub fn main() {
         // Update screen size
         let new_screen_size = window.drawable_size();
         state.resize = new_screen_size != screen_size;
-        state.rescale |= state.resize;
         screen_size = new_screen_size;
 
         // Update text size
-        if state.text {
-            let old_scale = camera_scale;
+        if state.text || state.resize {
             let (text_w, text_h) = atlas.measure_dims(text_buffer.chars());
             let scale_x = new_screen_size.0 as f64 / text_w;
             let scale_y = new_screen_size.1 as f64 / text_h;
             // Empirical maximum size. It should be possible to get an actual maximum size
             // (TODO)
             let new_scale = scale_x.min(scale_y).max(8.).min(160.);
-            previous_scale = Some((camera_scale as f32, Instant::now()));
-            camera_scale = new_scale as u32;
-            state.rescale |= camera_scale != old_scale;
+            scale_animation = ScaleAnimation {
+                start_value: scale_animation.actual_scale(),
+                end_value: new_scale as f32,
+                start: Instant::now(),
+            };
         }
 
         if state.rescale {
-            atlas = GlyphAtlas::new(&mut rast, font_key, texture1, camera_scale).unwrap();
+            atlas =
+                GlyphAtlas::new(&mut rast, font_key, texture1, last_camera_scale as u32).unwrap();
         }
 
-        let actual_scale = if let Some((previous_camera_scale, anim_start)) = previous_scale {
-            state.animating = true;
-            let elapsed_s = anim_start.elapsed().as_secs_f32();
-            let percent_elapsed = elapsed_s / ANIM_TIME_S;
-            if percent_elapsed <= 1. {
-                (camera_scale as f32 - previous_camera_scale) * percent_elapsed +  previous_camera_scale
-            } else {
-                previous_scale = None;
-                camera_scale as f32
-            }
-        } else {
-            camera_scale as f32
-        };
+        let camera_scale = scale_animation.actual_scale();
+        state.rescale |= camera_scale != last_camera_scale;
+        last_camera_scale = camera_scale;
 
         // Dear Princess Celestia
         // I fucking hate indentation
@@ -308,7 +303,7 @@ pub fn main() {
 
             let color_black: [GLfloat; 4] = [0., 0., 0., 1.];
             shader.uniform4vf("color", color_black);
-            shader.uniform1f("scale", actual_scale);
+            shader.uniform1f("scale", camera_scale);
             shader.uniform2i("screenSize", [width as i32, height as i32]);
 
             // rast.update_dpr(camera_scale); TODO: add me back (somewher)
@@ -322,6 +317,25 @@ pub fn main() {
         gl::DeleteVertexArrays(1, &vao);
         gl::DeleteBuffers(1, &vbo);
         gl::DeleteBuffers(1, &ebo);
+    }
+}
+
+struct ScaleAnimation {
+    pub start: Instant,
+    pub start_value: f32,
+    pub end_value: f32,
+}
+
+impl ScaleAnimation {
+    const ANIM_TIME_S: f32 = 0.2;
+    pub fn actual_scale(&self) -> f32 {
+        let elapsed_s = self.start.elapsed().as_secs_f32();
+        let percent_elapsed = elapsed_s / Self::ANIM_TIME_S;
+        if percent_elapsed <= 1. {
+            (self.end_value - self.start_value) * percent_elapsed + self.start_value
+        } else {
+            self.end_value
+        }
     }
 }
 
