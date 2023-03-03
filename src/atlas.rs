@@ -1,9 +1,9 @@
 use gl::types::{GLfloat, GLuint};
 use std::{
-    cell::{Ref, RefCell},
+    cell::{Ref, RefCell, RefMut},
     collections::{BTreeMap, HashMap},
     iter::repeat,
-    ops::Deref,
+    ops::{Deref, DerefMut},
 };
 
 use crossfont::{
@@ -55,6 +55,24 @@ impl GlyphAtlas {
         })
     }
 
+    fn get_current_mut(&self) -> impl DerefMut<Target = GlyphMap> + '_ {
+        if !self.sizes.borrow_mut().contains_key(&self.current_scale) {
+            let new_gmap = GlyphMap::new(
+                &mut *self.rasteriser.borrow_mut(),
+                self.font_key,
+                self.current_scale as f32 * Self::SCALE_STEP,
+            )
+            .unwrap(); // TODO: figure out how to handle errors
+            self.sizes.borrow_mut().insert(self.current_scale, new_gmap);
+        }
+
+        RefMut::map(self.sizes.borrow_mut(), |sizes| {
+            sizes
+                .get_mut(&self.current_scale)
+                .expect("Key should be present")
+        })
+    }
+
     pub fn new(rasteriser: Rasterizer, font_key: FontKey, texture1: GLuint) -> GlyphAtlas {
         GlyphAtlas {
             sizes: RefCell::new(BTreeMap::new()),
@@ -74,8 +92,15 @@ impl GlyphAtlas {
     }
 
     pub fn add_characters<I: Iterator<Item = char>>(&mut self, chars: I) {
-        // let map = self.get_current();
-        // map.add_characters(chars, self.texture1, &mut self.rasteriser);
+        let mut map = self.get_current_mut();
+        let old_height = GlyphMap::buffer_height(&map);
+        map.add_characters(chars, &mut *self.rasteriser.borrow_mut());
+        let new_height = GlyphMap::buffer_height(&map);
+        if old_height != new_height {
+            unsafe {
+                GlyphMap::upload_texture(&map, self.texture1);
+            }
+        }
     }
 
     pub fn line_height(&mut self) -> f64 {
@@ -142,11 +167,7 @@ impl GlyphMap {
         self.pixel_buffer.len() / self.buffer_width
     }
 
-    pub fn add_characters<I: Iterator<Item = char>>(
-        &mut self,
-        chars: I,
-        rast: &mut Rasterizer,
-    ) {
+    pub fn add_characters<I: Iterator<Item = char>>(&mut self, chars: I, rast: &mut Rasterizer) {
         for c in chars {
             if self.glyphs.contains_key(&c) {
                 continue;
