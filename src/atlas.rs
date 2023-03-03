@@ -1,5 +1,10 @@
 use gl::types::{GLfloat, GLuint};
-use std::{collections::HashMap, iter::repeat};
+use std::{
+    cell::{Ref, RefCell},
+    collections::{BTreeMap, HashMap},
+    iter::repeat,
+    ops::Deref,
+};
 
 use crossfont::{
     BitmapBuffer, Error, FontKey, GlyphKey, Rasterize, RasterizedGlyph, Rasterizer, Size,
@@ -21,6 +26,72 @@ struct AtlasIndex {
 }
 
 pub struct GlyphAtlas {
+    /// Contains the computed sizes
+    sizes: RefCell<BTreeMap<u32, GlyphMap>>,
+    rasteriser: RefCell<Rasterizer>,
+    font_key: FontKey,
+    texture1: GLuint,
+    current_scale: u32,
+}
+
+impl GlyphAtlas {
+    pub const SCALE_STEP: f32 = 0.25;
+    pub const MIN_SCALE: u32 = (4. / Self::SCALE_STEP) as u32;
+    fn get_current(&self) -> impl Deref<Target = GlyphMap> + '_ {
+        if !self.sizes.borrow_mut().contains_key(&self.current_scale) {
+            let new_gmap = GlyphMap::new(
+                &mut *self.rasteriser.borrow_mut(),
+                self.font_key,
+                self.current_scale as f32 * Self::SCALE_STEP,
+            )
+            .unwrap(); // TODO: figure out how to handle errors
+            self.sizes.borrow_mut().insert(self.current_scale, new_gmap);
+        }
+
+        Ref::map(self.sizes.borrow(), |sizes| {
+            sizes
+                .get(&self.current_scale)
+                .expect("Key should be present")
+        })
+    }
+
+    pub fn new(rasteriser: Rasterizer, font_key: FontKey, texture1: GLuint) -> GlyphAtlas {
+        GlyphAtlas {
+            sizes: RefCell::new(BTreeMap::new()),
+            rasteriser: RefCell::new(rasteriser),
+            font_key,
+            texture1,
+            current_scale: Self::MIN_SCALE,
+        }
+    }
+
+    pub fn select_scale(&mut self, scale: f32) {
+        let scale_rounded = (scale / Self::SCALE_STEP).round() as u32;
+        if self.current_scale != scale_rounded {
+            self.current_scale = scale_rounded;
+            unsafe { GlyphMap::upload_texture(&*self.get_current(), self.texture1) };
+        }
+    }
+
+    pub fn add_characters<I: Iterator<Item = char>>(&mut self, chars: I) {
+        // let map = self.get_current();
+        // map.add_characters(chars, self.texture1, &mut self.rasteriser);
+    }
+
+    pub fn line_height(&mut self) -> f64 {
+        self.get_current().line_height
+    }
+
+    pub fn measure_dims(&mut self, chars: impl Iterator<Item = char>) -> (f64, f64) {
+        self.get_current().measure_dims(chars)
+    }
+
+    pub fn get_glyph_data(&mut self, c: char, x0: f64, y0: f64) -> ([[GLfloat; 4]; 4], f64, f64) {
+        self.get_current().get_glyph_data(c, x0, y0)
+    }
+}
+
+struct GlyphMap {
     /// Stores the glyphs
     pixel_buffer: Vec<RGBA>,
     buffer_width: usize,
@@ -32,18 +103,17 @@ pub struct GlyphAtlas {
     line_height: f64,
 }
 
-impl GlyphAtlas {
+impl GlyphMap {
     /// How large the internal vector's rows should be, compared to the first
-    /// character generated. This is mostly to avoid having to write resizing
+    /// character generated. self is mostly to avoid having to write resizing
     /// code. And yes, 10 is absolutely overkill.
     const MAX_WIDTH_RATIO: usize = 3;
     pub fn new(
         rasteriser: &mut Rasterizer,
         font_key: FontKey,
-        texture1: GLuint,
-        camera_scale: u32,
+        camera_scale: f32,
     ) -> Result<Self, Error> {
-        rasteriser.update_dpr(Size::factor() * camera_scale as f32);
+        rasteriser.update_dpr(Size::factor() * camera_scale);
         let glyph = get_glyph(rasteriser, font_key, '?')?;
         let buffer_width = glyph.width as usize * Self::MAX_WIDTH_RATIO;
 
@@ -63,7 +133,7 @@ impl GlyphAtlas {
         };
 
         let printable_ascii = (32..127_u8).map(|b| b as char);
-        res.add_characters(printable_ascii, texture1, rasteriser);
+        res.add_characters(printable_ascii, rasteriser);
 
         Ok(res)
     }
@@ -72,17 +142,11 @@ impl GlyphAtlas {
         self.pixel_buffer.len() / self.buffer_width
     }
 
-    pub fn line_height(&self) -> f64 {
-        self.line_height
-    }
-
     pub fn add_characters<I: Iterator<Item = char>>(
         &mut self,
         chars: I,
-        texture1: GLuint,
         rast: &mut Rasterizer,
     ) {
-        let num_glyphs_before = self.glyphs.len();
         for c in chars {
             if self.glyphs.contains_key(&c) {
                 continue;
@@ -99,16 +163,6 @@ impl GlyphAtlas {
             let glyph_info =
                 push_pixels(glyph, &mut self.pixel_buffer, self.buffer_width, self.scale);
             self.glyphs.insert(c, glyph_info);
-        }
-
-        // let next_buf_height = self.buffer_height().next_power_of_two();
-        // let to_pad = next_buf_height - self.buffer_height();
-        // self.pixel_buffer.extend(repeat(RGBA([0; 4])).take(self.buffer_width * to_pad));
-
-        // assert!(self.buffer_height().is_power_of_two(), "{}", self.buffer_height());
-
-        if num_glyphs_before != self.glyphs.len() {
-            unsafe { self.upload_texture(texture1) }
         }
     }
 
@@ -150,12 +204,7 @@ impl GlyphAtlas {
         (w, h + self.line_height)
     }
 
-    pub fn get_glyph_data(
-        &self,
-        c: char,
-        x0: f64,
-        y0: f64,
-    ) -> ([[GLfloat; 4]; 4], f64, f64) {
+    pub fn get_glyph_data(&self, c: char, x0: f64, y0: f64) -> ([[GLfloat; 4]; 4], f64, f64) {
         let pos = self.glyphs.get(&c).unwrap_or(&self.unknown_position);
 
         let top = pos.top as f64;

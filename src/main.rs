@@ -185,9 +185,8 @@ pub fn main() {
 
     let mut screen_size = window.drawable_size();
     let mut text_buffer = String::new();
-    let mut last_camera_scale = 128.;
-    let mut atlas =
-        GlyphAtlas::new(&mut rast, font_key, texture1, last_camera_scale as u32).unwrap();
+    let mut last_camera_scale = 1.;
+    let mut atlas = GlyphAtlas::new(rast, font_key, texture1);
     let mut last_recorded_frame = 0;
     let mut scale_animation = ScaleAnimation {
         start,
@@ -268,7 +267,7 @@ pub fn main() {
             let scale_y = new_screen_size.1 as f64 / text_h;
             // Empirical maximum size. It should be possible to get an actual maximum size
             // (TODO)
-            let new_scale = scale_x.min(scale_y).max(8.).min(160.);
+            let new_scale = scale_x.min(scale_y).max(8.).min(64.);
             scale_animation = ScaleAnimation {
                 start_value: scale_animation.actual_scale(),
                 end_value: new_scale as f32,
@@ -276,14 +275,11 @@ pub fn main() {
             };
         }
 
-        if state.rescale {
-            atlas =
-                GlyphAtlas::new(&mut rast, font_key, texture1, last_camera_scale as u32).unwrap();
-        }
-
         let camera_scale = scale_animation.actual_scale();
         state.rescale |= camera_scale != last_camera_scale;
         last_camera_scale = camera_scale;
+
+        atlas.select_scale(camera_scale);
 
         // Dear Princess Celestia
         // I fucking hate indentation
@@ -307,7 +303,7 @@ pub fn main() {
             shader.uniform2i("screenSize", [width as i32, height as i32]);
 
             // rast.update_dpr(camera_scale); TODO: add me back (somewher)
-            render_text(&text_buffer, &mut atlas, 0., 0., texture1, vao, &mut rast);
+            render_text(&text_buffer, &mut atlas, 0., 0., vao);
         }
         window.gl_swap_window();
     }
@@ -342,18 +338,10 @@ impl ScaleAnimation {
 // TODO: when building atlas, keep track of width of all characters (and be able
 // to predict how wide some text will be)
 // also I really need to document this kek
-fn render_text(
-    text: &str,
-    atlas: &mut GlyphAtlas,
-    x_start: f64,
-    y_start: f64,
-    texture1: GLuint,
-    vao: GLuint,
-    rast: &mut Rasterizer,
-) {
+fn render_text(text: &str, atlas: &mut GlyphAtlas, x_start: f64, y_start: f64, vao: GLuint) {
     let line_height = atlas.line_height();
 
-    atlas.add_characters(text.chars(), texture1, rast);
+    atlas.add_characters(text.chars());
     let mut y0 = y_start;
     for line in text.lines() {
         let mut x0 = x_start;
