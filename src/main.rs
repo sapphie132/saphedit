@@ -7,7 +7,6 @@ use sdl2::event::Event;
 use sdl2::keyboard::{Keycode, Mod, Scancode};
 
 use std::ffi::CString;
-use std::fs::read_to_string;
 use std::mem::{self, size_of, size_of_val};
 use std::ptr;
 use std::str;
@@ -117,7 +116,7 @@ pub fn main() {
                 name: "aTexCoord",
             },
         ];
-        Shader::new(TEXT_SHADER_NAME, &attributes)
+        Shader::new(ShaderType::Text, &attributes)
     };
 
     // setup text shader
@@ -357,27 +356,34 @@ struct Shader {
     ebo: GLuint,
 }
 
-const SHADER_PATH: &str = "src/shaders/";
-const TEXT_SHADER_NAME: &str = "text";
-
 struct AttributeInfo<'a> {
     size: u32,
     name: &'a str,
 }
 
+enum ShaderType {
+    Text,
+    // Shape,
+}
+
 impl Shader {
-
-
     /// Creates a new shader in `SHADER_PATH/{shader_name}_*.glsl`
     /// ### Safety
     /// Caller must ensure that the attribute info is valid for the shader
-    unsafe fn new(shader_name: &str, attr_info: &[AttributeInfo]) -> Self {
-        let vs_src_path = format!("{SHADER_PATH}{shader_name}_vertex.glsl");
-        let fs_src_path = format!("{SHADER_PATH}{shader_name}_fragment.glsl");
-        let vs_source = read_to_string(vs_src_path).expect("Could not read vertex shader source");
-        let fs_source = read_to_string(fs_src_path).expect("Could not read fragment shader source");
-        let vertex_shader_id = compile_shader(&vs_source, gl::VERTEX_SHADER);
-        let fragment_shader_id = compile_shader(&fs_source, gl::FRAGMENT_SHADER);
+    // TODO: make this safe (should be easy)
+    unsafe fn new(shader_type: ShaderType, attr_info: &[AttributeInfo]) -> Self {
+        let (vs_src, fs_src) = match shader_type {
+            ShaderType::Text => (
+                include_str!("shaders/text_vertex.glsl"),
+                include_str!("shaders/text_fragment.glsl"),
+            ),
+            // ShaderType::Shape => (
+            //     include_str!("shaders/shape_vertex.glsl"),
+            //     include_str!("shaders/shape_fragment.glsl"),
+            // ),
+        };
+        let vertex_shader_id = compile_shader(&vs_src, gl::VERTEX_SHADER);
+        let fragment_shader_id = compile_shader(&fs_src, gl::FRAGMENT_SHADER);
         let program_id = {
             let shader_program = gl::CreateProgram();
             gl::AttachShader(shader_program, vertex_shader_id);
