@@ -39,8 +39,8 @@ macro_rules! gl_err {
         // Fail on error
         if status != (gl::TRUE as GLint) {
             let mut len = 0;
-            $iv_fun($id, $pname, &mut len);
-            let mut buf = Vec::with_capacity(len as usize);
+            $iv_fun($id, gl::INFO_LOG_LENGTH, &mut len);
+            let mut buf = vec![0; len as usize];
             $info_fun($id, len, ptr::null_mut(), buf.as_mut_ptr() as *mut GLchar);
             panic!(
                 "{}",
@@ -68,8 +68,6 @@ fn compile_shader(src: &str, ty: GLenum) -> u32 {
     shader
 }
 
-const VS_SRC_PATH: &str = "src/shaders/vertex.glsl";
-const FS_SRC_PATH: &str = "src/shaders/fragment.glsl";
 const REDRAW_EVERY: u64 = 1 << 30;
 
 pub fn main() {
@@ -108,59 +106,11 @@ pub fn main() {
     let mod_ctrl: Mod = Mod::LCTRLMOD | Mod::RCTRLMOD;
     let mut start = Instant::now();
 
-    let mut vbo = 0;
-    let mut vao = 0;
-    let mut ebo = 0;
+    let text_shader = Shader::new(TEXT_SHADER_NAME);
 
-    let shader = Shader::new();
-
-    // let img = image::open("A.png").unwrap().to_rgba8();
-
-    // setup program
+    // setup text shader
     unsafe {
         // Safe code, but the variables aren't needed outside this block
-
-        let indices = [
-            1, 2, 3, // Second triangle
-            0, 1, 3, // first triangle
-        ];
-        gl::GenVertexArrays(1, &mut vao);
-        gl::GenBuffers(1, &mut vbo);
-        gl::GenBuffers(1, &mut ebo);
-
-        gl::BindVertexArray(vao);
-
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-
-        gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
-        gl::BufferData(
-            gl::ELEMENT_ARRAY_BUFFER,
-            size_of_val(&indices) as isize,
-            mem::transmute(&indices),
-            gl::STATIC_DRAW,
-        );
-
-        // position attribute
-        gl::VertexAttribPointer(
-            0,
-            2,
-            gl::FLOAT,
-            gl::FALSE,
-            4 * size_of::<GLfloat>() as i32,
-            ptr::null(),
-        );
-        gl::EnableVertexAttribArray(0);
-
-        // coordinate attribute
-        gl::VertexAttribPointer(
-            1,
-            2,
-            gl::FLOAT,
-            gl::FALSE,
-            4 * size_of::<GLfloat>() as i32,
-            mem::transmute(2 * size_of::<GLfloat>()),
-        );
-        gl::EnableVertexAttribArray(1);
 
         gl::Enable(gl::BLEND);
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
@@ -179,8 +129,8 @@ pub fn main() {
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
 
-        shader.r#use();
-        shader.uniform1i("texture1", 0);
+        text_shader.r#use();
+        text_shader.uniform1i("texture1", 0);
     }
 
     let mut screen_size = window.drawable_size();
@@ -295,24 +245,17 @@ pub fn main() {
             gl::ClearColor(0.2, 0.3, 0.3, 1.);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
-            shader.r#use();
+            text_shader.r#use();
 
             let color_black: [GLfloat; 4] = [0., 0., 0., 1.];
-            shader.uniform4vf("color", color_black);
-            shader.uniform1f("scale", camera_scale);
-            shader.uniform2i("screenSize", [width as i32, height as i32]);
+            text_shader.uniform4vf("color", color_black);
+            text_shader.uniform1f("scale", camera_scale);
+            text_shader.uniform2i("screenSize", [width as i32, height as i32]);
 
             // rast.update_dpr(camera_scale); TODO: add me back (somewher)
-            render_text(&text_buffer, &mut atlas, 0., 0., vao);
+            render_text(&text_buffer, &mut atlas, 0., 0., text_shader.vao);
         }
         window.gl_swap_window();
-    }
-
-    // Cleanup
-    unsafe {
-        gl::DeleteVertexArrays(1, &vao);
-        gl::DeleteBuffers(1, &vbo);
-        gl::DeleteBuffers(1, &ebo);
     }
 }
 
@@ -353,7 +296,7 @@ fn render_text(text: &str, atlas: &mut GlyphAtlas, x_start: f64, y_start: f64, v
                     gl::ARRAY_BUFFER,
                     size_of_val(&vertices) as isize,
                     mem::transmute(&vertices),
-                    gl::STATIC_DRAW,
+                    gl::DYNAMIC_DRAW,
                 );
 
                 // gl::GenerateMipmap(gl::TEXTURE_2D);
@@ -395,12 +338,22 @@ impl UpdateState {
     }
 }
 
-struct Shader(GLuint);
+struct Shader {
+    program_id: GLuint,
+    vao: GLuint,
+    vbo: GLuint,
+    ebo: GLuint,
+}
+
+const SHADER_PATH: &str = "src/shaders/";
+const TEXT_SHADER_NAME: &str = "text";
 
 impl Shader {
-    fn new() -> Self {
-        let vs_source = read_to_string(VS_SRC_PATH).expect("Could not read vertex shader source");
-        let fs_source = read_to_string(FS_SRC_PATH).expect("Could not read vertex shader source");
+    fn new(shader_name: &str) -> Self {
+        let vs_src_path = format!("{SHADER_PATH}{shader_name}_vertex.glsl");
+        let fs_src_path = format!("{SHADER_PATH}{shader_name}_fragment.glsl");
+        let vs_source = read_to_string(vs_src_path).expect("Could not read vertex shader source");
+        let fs_source = read_to_string(fs_src_path).expect("Could not read fragment shader source");
         let vertex_shader_id = compile_shader(&vs_source, gl::VERTEX_SHADER);
         let fragment_shader_id = compile_shader(&fs_source, gl::FRAGMENT_SHADER);
         let shader = unsafe {
@@ -408,8 +361,8 @@ impl Shader {
             gl::AttachShader(shader_program, vertex_shader_id);
             gl::AttachShader(shader_program, fragment_shader_id);
             gl::LinkProgram(shader_program);
-            // gl::DeleteShader(vertex_shader_id);
-            // gl::DeleteShader(fragment_shader_id);
+            gl::DeleteShader(vertex_shader_id);
+            gl::DeleteShader(fragment_shader_id);
             gl_err!(
                 shader_program,
                 gl::GetProgramiv,
@@ -418,26 +371,78 @@ impl Shader {
             );
             shader_program
         };
-        Self(shader)
+
+        let mut vao = 0;
+        let mut vbo = 0;
+        let mut ebo = 0;
+        unsafe {
+            gl::GenVertexArrays(1, &mut vao);
+            gl::GenBuffers(1, &mut vbo);
+            gl::GenBuffers(1, &mut ebo);
+
+            gl::BindVertexArray(vao);
+            gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
+            let indices = [
+                1, 2, 3, // Second triangle
+                0, 1, 3, // first triangle
+            ];
+
+            gl::BufferData(
+                gl::ELEMENT_ARRAY_BUFFER,
+                size_of_val(&indices) as isize,
+                mem::transmute(&indices),
+                gl::DYNAMIC_DRAW,
+            );
+
+            // position attribute
+            gl::VertexAttribPointer(
+                0,
+                2,
+                gl::FLOAT,
+                gl::FALSE,
+                4 * size_of::<GLfloat>() as i32,
+                ptr::null(),
+            );
+            gl::EnableVertexAttribArray(0);
+
+            // coordinate attribute
+            gl::VertexAttribPointer(
+                1,
+                2,
+                gl::FLOAT,
+                gl::FALSE,
+                4 * size_of::<GLfloat>() as i32,
+                mem::transmute(2 * size_of::<GLfloat>()),
+            );
+            gl::EnableVertexAttribArray(1);
+        }
+        Self {
+            program_id: shader,
+            vao,
+            ebo,
+            vbo,
+        }
     }
 
     fn r#use(&self) {
         unsafe {
-            gl::UseProgram(self.0);
+            gl::UseProgram(self.program_id);
         }
     }
 
     fn uniform1i(&self, name: &str, val: i32) {
         let name = c_str(name);
         unsafe {
-            gl::Uniform1i(gl::GetUniformLocation(self.0, name.as_ptr()), val);
+            gl::Uniform1i(gl::GetUniformLocation(self.program_id, name.as_ptr()), val);
         }
     }
 
     fn uniform1f(&self, name: &str, val: GLfloat) {
         let name = c_str(name);
         unsafe {
-            gl::Uniform1f(gl::GetUniformLocation(self.0, name.as_ptr()), val);
+            gl::Uniform1f(gl::GetUniformLocation(self.program_id, name.as_ptr()), val);
         }
     }
 
@@ -445,7 +450,7 @@ impl Shader {
         let name = c_str(name);
         unsafe {
             gl::Uniform4fv(
-                gl::GetUniformLocation(self.0, name.as_ptr()),
+                gl::GetUniformLocation(self.program_id, name.as_ptr()),
                 1,
                 val.as_ptr(),
             );
@@ -456,7 +461,7 @@ impl Shader {
         let name = c_str(name);
         unsafe {
             gl::Uniform2i(
-                gl::GetUniformLocation(self.0, name.as_ptr()),
+                gl::GetUniformLocation(self.program_id, name.as_ptr()),
                 val[0],
                 val[1],
             )
@@ -470,6 +475,11 @@ fn c_str(name: &str) -> CString {
 
 impl Drop for Shader {
     fn drop(&mut self) {
-        unsafe { gl::DeleteProgram(self.0) };
+        unsafe {
+            gl::DeleteProgram(self.program_id);
+            gl::DeleteVertexArrays(1, &self.vao);
+            gl::DeleteBuffers(1, &self.vbo);
+            gl::DeleteBuffers(1, &self.ebo);
+        };
     }
 }
