@@ -106,7 +106,19 @@ pub fn main() {
     let mod_ctrl: Mod = Mod::LCTRLMOD | Mod::RCTRLMOD;
     let mut start = Instant::now();
 
-    let text_shader = Shader::new(TEXT_SHADER_NAME);
+    let text_shader = unsafe {
+        let attributes = [
+            AttributeInfo {
+                size: 2,
+                name: "aPos",
+            },
+            AttributeInfo {
+                size: 2,
+                name: "aTexCoord",
+            },
+        ];
+        Shader::new(TEXT_SHADER_NAME, &attributes)
+    };
 
     // setup text shader
     unsafe {
@@ -348,15 +360,25 @@ struct Shader {
 const SHADER_PATH: &str = "src/shaders/";
 const TEXT_SHADER_NAME: &str = "text";
 
+struct AttributeInfo<'a> {
+    size: u32,
+    name: &'a str,
+}
+
 impl Shader {
-    fn new(shader_name: &str) -> Self {
+
+
+    /// Creates a new shader in `SHADER_PATH/{shader_name}_*.glsl`
+    /// ### Safety
+    /// Caller must ensure that the attribute info is valid for the shader
+    unsafe fn new(shader_name: &str, attr_info: &[AttributeInfo]) -> Self {
         let vs_src_path = format!("{SHADER_PATH}{shader_name}_vertex.glsl");
         let fs_src_path = format!("{SHADER_PATH}{shader_name}_fragment.glsl");
         let vs_source = read_to_string(vs_src_path).expect("Could not read vertex shader source");
         let fs_source = read_to_string(fs_src_path).expect("Could not read fragment shader source");
         let vertex_shader_id = compile_shader(&vs_source, gl::VERTEX_SHADER);
         let fragment_shader_id = compile_shader(&fs_source, gl::FRAGMENT_SHADER);
-        let shader = unsafe {
+        let program_id = {
             let shader_program = gl::CreateProgram();
             gl::AttachShader(shader_program, vertex_shader_id);
             gl::AttachShader(shader_program, fragment_shader_id);
@@ -375,51 +397,65 @@ impl Shader {
         let mut vao = 0;
         let mut vbo = 0;
         let mut ebo = 0;
-        unsafe {
-            gl::GenVertexArrays(1, &mut vao);
-            gl::GenBuffers(1, &mut vbo);
-            gl::GenBuffers(1, &mut ebo);
 
-            gl::BindVertexArray(vao);
-            gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+        gl::GenVertexArrays(1, &mut vao);
+        gl::GenBuffers(1, &mut vbo);
+        gl::GenBuffers(1, &mut ebo);
 
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
-            let indices = [
-                1, 2, 3, // Second triangle
-                0, 1, 3, // first triangle
-            ];
+        gl::BindVertexArray(vao);
+        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
 
-            gl::BufferData(
-                gl::ELEMENT_ARRAY_BUFFER,
-                size_of_val(&indices) as isize,
-                mem::transmute(&indices),
-                gl::DYNAMIC_DRAW,
-            );
+        gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
+        let indices = [
+            1, 2, 3, // Second triangle
+            0, 1, 3, // first triangle
+        ];
 
-            // position attribute
+        gl::BufferData(
+            gl::ELEMENT_ARRAY_BUFFER,
+            size_of_val(&indices) as isize,
+            mem::transmute(&indices),
+            gl::DYNAMIC_DRAW,
+        );
+
+        let stride: u32 = attr_info
+            .iter()
+            .map(|attr| attr.size * mem::size_of::<GLfloat>() as u32)
+            .sum();
+
+        let mut offset = 0;
+        for AttributeInfo {
+            size,
+            name: attr_name,
+        } in attr_info
+        {
+            let name = c_str(attr_name);
+            let attrib_location = gl::GetAttribLocation(program_id, name.as_ptr());
+            if attrib_location < 0 {
+                panic!("Couldn't find attribute {attr_name}");
+            }
+
+            let attrib_location = attrib_location as u32;
+            let pointer = ptr::null::<GLfloat>().wrapping_add(offset);
+
             gl::VertexAttribPointer(
-                0,
-                2,
+                attrib_location,
+                *size as i32,
                 gl::FLOAT,
                 gl::FALSE,
-                4 * size_of::<GLfloat>() as i32,
-                ptr::null(),
+                stride as i32,
+                pointer as _,
             );
-            gl::EnableVertexAttribArray(0);
 
-            // coordinate attribute
-            gl::VertexAttribPointer(
-                1,
-                2,
-                gl::FLOAT,
-                gl::FALSE,
-                4 * size_of::<GLfloat>() as i32,
-                mem::transmute(2 * size_of::<GLfloat>()),
-            );
-            gl::EnableVertexAttribArray(1);
+            if gl::GetError() != gl::NO_ERROR {
+                panic!("Error occurred") // TODO? better error handling?
+            }
+            offset += *size as usize;
+
+            gl::EnableVertexAttribArray(attrib_location);
         }
         Self {
-            program_id: shader,
+            program_id,
             vao,
             ebo,
             vbo,
