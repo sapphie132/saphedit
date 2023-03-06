@@ -89,7 +89,7 @@ pub fn main() {
     let clipboard = video_subsystem.clipboard();
 
     let mut window = video_subsystem
-        .window("Saphedit", 800, 600)
+        .window("", 800, 600)
         .opengl()
         .position_centered()
         .resizable()
@@ -192,11 +192,12 @@ pub fn main() {
                 _ => {}
             }
         }
+
         // fps tracking
-        if start.elapsed().as_secs() >= 2 {
+        if start.elapsed().as_secs_f32() >= 0.5 {
             let elapsed_frames = frame_counter - last_recorded_frame;
             let fps = elapsed_frames as f64 / start.elapsed().as_secs_f64();
-            window.set_title("Saphedit — fps={fps}").expect("String has no null bytes");
+            window.set_title(&format!("Saphedit, fps={fps:.0}")).expect("String has no null bytes");
             last_recorded_frame = frame_counter;
             start = Instant::now();
         }
