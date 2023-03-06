@@ -88,7 +88,7 @@ pub fn main() {
 
     let clipboard = video_subsystem.clipboard();
 
-    let window = video_subsystem
+    let mut window = video_subsystem
         .window("Saphedit", 800, 600)
         .opengl()
         .position_centered()
@@ -105,19 +105,7 @@ pub fn main() {
     let mod_ctrl: Mod = Mod::LCTRLMOD | Mod::RCTRLMOD;
     let mut start = Instant::now();
 
-    let text_shader = unsafe {
-        let attributes = [
-            AttributeInfo {
-                size: 2,
-                name: "aPos",
-            },
-            AttributeInfo {
-                size: 2,
-                name: "aTexCoord",
-            },
-        ];
-        Shader::new(ShaderType::Text, &attributes)
-    };
+    let text_shader = Shader::text_shader();
 
     // setup text shader
     unsafe {
@@ -208,7 +196,7 @@ pub fn main() {
         if start.elapsed().as_secs() >= 2 {
             let elapsed_frames = frame_counter - last_recorded_frame;
             let fps = elapsed_frames as f64 / start.elapsed().as_secs_f64();
-            println!("Running at {fps:.0} fps");
+            window.set_title("Saphedit — fps={fps}").expect("String has no null bytes");
             last_recorded_frame = frame_counter;
             start = Instant::now();
         }
@@ -263,8 +251,7 @@ pub fn main() {
             text_shader.uniform1f("scale", camera_scale);
             text_shader.uniform2i("screenSize", [width as i32, height as i32]);
 
-            // rast.update_dpr(camera_scale); TODO: add me back (somewher)
-            render_text(&text_buffer, &mut atlas, 0., 0., text_shader.vao);
+            render_text(&text_buffer, &mut atlas, 0., 0., &text_shader);
         }
         window.gl_swap_window();
     }
@@ -292,7 +279,7 @@ impl ScaleAnimation {
 // TODO: when building atlas, keep track of width of all characters (and be able
 // to predict how wide some text will be)
 // also I really need to document this kek
-fn render_text(text: &str, atlas: &mut GlyphAtlas, x_start: f64, y_start: f64, vao: GLuint) {
+fn render_text(text: &str, atlas: &mut GlyphAtlas, x_start: f64, y_start: f64, text_shader: &Shader<4>) {
     let line_height = atlas.line_height();
 
     atlas.add_characters(text.chars());
@@ -301,15 +288,8 @@ fn render_text(text: &str, atlas: &mut GlyphAtlas, x_start: f64, y_start: f64, v
         let mut x0 = x_start;
         for c in line.chars() {
             let (vertices, ax, ay) = atlas.get_glyph_data(c, x0, y0);
+            text_shader.buffer_data(&vertices);
             unsafe {
-                gl::BindVertexArray(vao);
-                gl::BufferData(
-                    gl::ARRAY_BUFFER,
-                    size_of_val(&vertices) as isize,
-                    mem::transmute(&vertices),
-                    gl::DYNAMIC_DRAW,
-                );
-
                 // gl::GenerateMipmap(gl::TEXTURE_2D);
                 gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
             }
@@ -349,7 +329,7 @@ impl UpdateState {
     }
 }
 
-struct Shader {
+struct Shader<const N: usize> {
     program_id: GLuint,
     vao: GLuint,
     vbo: GLuint,
@@ -361,27 +341,34 @@ struct AttributeInfo<'a> {
     name: &'a str,
 }
 
-enum ShaderType {
-    Text,
-    // Shape,
-}
+const TEXT_SHADER_ATTR_INFO: [AttributeInfo; 2] = [
+    AttributeInfo {
+        size: 2,
+        name: "aPos",
+    },
+    AttributeInfo {
+        size: 2,
+        name: "aTexCoord",
+    },
+];
 
-impl Shader {
+const SHAPE_SHADER_ATTR_INFO: [AttributeInfo; 2] = [
+    AttributeInfo {
+        size: 2,
+        name: "aPos",
+    },
+    AttributeInfo {
+        size: 4,
+        name: "inColour",
+    },
+];
+
+impl<const N: usize> Shader<N> {
     /// Creates a new shader in `SHADER_PATH/{shader_name}_*.glsl`
     /// ### Safety
     /// Caller must ensure that the attribute info is valid for the shader
     // TODO: make this safe (should be easy)
-    unsafe fn new(shader_type: ShaderType, attr_info: &[AttributeInfo]) -> Self {
-        let (vs_src, fs_src) = match shader_type {
-            ShaderType::Text => (
-                include_str!("shaders/text_vertex.glsl"),
-                include_str!("shaders/text_fragment.glsl"),
-            ),
-            // ShaderType::Shape => (
-            //     include_str!("shaders/shape_vertex.glsl"),
-            //     include_str!("shaders/shape_fragment.glsl"),
-            // ),
-        };
+    unsafe fn new(vs_src: &str, fs_src: &str, attr_info: &[AttributeInfo]) -> Self {
         let vertex_shader_id = compile_shader(&vs_src, gl::VERTEX_SHADER);
         let fragment_shader_id = compile_shader(&fs_src, gl::FRAGMENT_SHADER);
         let program_id = {
@@ -468,6 +455,22 @@ impl Shader {
         }
     }
 
+    fn buffer_data(&self, data: &[[f32; N]]) {
+        // TODO: make this work for longer arrays
+        assert!(data.len() == 4, "data needs to have an even number of triangles");
+        unsafe {
+            gl::BindVertexArray(self.vao);
+            // Safety:
+            // - vbo initialised and bound
+            gl::BufferData(
+                gl::ARRAY_BUFFER,
+                size_of_val(data) as isize,
+                data.as_ptr() as _,
+                gl::DYNAMIC_DRAW,
+            )
+        }
+    }
+
     fn r#use(&self) {
         unsafe {
             gl::UseProgram(self.program_id);
@@ -511,11 +514,24 @@ impl Shader {
     }
 }
 
+impl Shader<4> {
+    fn text_shader() -> Shader<4> {
+        unsafe {
+            // Safety: the sizes in TEXT_SHADER_ATTR_INFO sum up to 4
+            Shader::new(
+                include_str!("shaders/text_vertex.glsl"),
+                include_str!("shaders/text_fragment.glsl"),
+                &TEXT_SHADER_ATTR_INFO,
+            )
+        }
+    }
+}
+
 fn c_str(name: &str) -> CString {
     CString::new(name).expect("Name needs to be valid ascii")
 }
 
-impl Drop for Shader {
+impl<const N: usize> Drop for Shader<N> {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteProgram(self.program_id);
