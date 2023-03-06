@@ -105,19 +105,21 @@ pub fn main() {
     let mod_ctrl: Mod = Mod::LCTRLMOD | Mod::RCTRLMOD;
     let mut start = Instant::now();
 
-    let text_shader = Shader::text_shader();
-
-    // setup text shader
+    // setup blending
     unsafe {
-        // Safe code, but the variables aren't needed outside this block
-
         gl::Enable(gl::BLEND);
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
     };
 
+    let text_shader = Shader::text_shader();
+    // TODO: currently bugged. Probably need to disable the attribs before
+    // enabling the others
+    // let shape_shader = Shader::shape_shader();
+
     // setup glyph atlas TODO: move this into new
     let mut texture1 = 0;
     unsafe {
+        text_shader.r#use();
         gl::GenTextures(1, &mut texture1);
         gl::BindTexture(gl::TEXTURE_2D, texture1);
 
@@ -128,7 +130,6 @@ pub fn main() {
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
 
-        text_shader.r#use();
         text_shader.uniform1i("texture1", 0);
     }
 
@@ -197,7 +198,9 @@ pub fn main() {
         if start.elapsed().as_secs_f32() >= 0.5 {
             let elapsed_frames = frame_counter - last_recorded_frame;
             let fps = elapsed_frames as f64 / start.elapsed().as_secs_f64();
-            window.set_title(&format!("Saphedit, fps={fps:.0}")).expect("String has no null bytes");
+            window
+                .set_title(&format!("Saphedit, fps={fps:.0}"))
+                .expect("String has no null bytes");
             last_recorded_frame = frame_counter;
             start = Instant::now();
         }
@@ -280,7 +283,13 @@ impl ScaleAnimation {
 // TODO: when building atlas, keep track of width of all characters (and be able
 // to predict how wide some text will be)
 // also I really need to document this kek
-fn render_text(text: &str, atlas: &mut GlyphAtlas, x_start: f64, y_start: f64, text_shader: &Shader<4>) {
+fn render_text(
+    text: &str,
+    atlas: &mut GlyphAtlas,
+    x_start: f64,
+    y_start: f64,
+    text_shader: &Shader<4>,
+) {
     let line_height = atlas.line_height();
 
     atlas.add_characters(text.chars());
@@ -292,7 +301,9 @@ fn render_text(text: &str, atlas: &mut GlyphAtlas, x_start: f64, y_start: f64, t
             text_shader.buffer_data(&vertices);
             unsafe {
                 // gl::GenerateMipmap(gl::TEXTURE_2D);
+                gl::BindVertexArray(text_shader.vao);
                 gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
+                // gl::DrawArrays(gl::TRIANGLES, 0, 1);
             }
 
             x0 += ax;
@@ -388,6 +399,8 @@ impl<const N: usize> Shader<N> {
             shader_program
         };
 
+        gl::UseProgram(program_id);
+
         let mut vao = 0;
         let mut vbo = 0;
         let mut ebo = 0;
@@ -441,8 +454,9 @@ impl<const N: usize> Shader<N> {
                 pointer as _,
             );
 
-            if gl::GetError() != gl::NO_ERROR {
-                panic!("Error occurred") // TODO? better error handling?
+            let err = gl::GetError();
+            if err != gl::NO_ERROR {
+                panic!("Error occurred {err}") // TODO? better error handling?
             }
             offset += *size as usize;
 
@@ -458,7 +472,10 @@ impl<const N: usize> Shader<N> {
 
     fn buffer_data(&self, data: &[[f32; N]]) {
         // TODO: make this work for longer arrays
-        assert!(data.len() == 4, "data needs to have an even number of triangles");
+        assert!(
+            data.len() == 4,
+            "data needs to have an even number of triangles"
+        );
         unsafe {
             gl::BindVertexArray(self.vao);
             // Safety:
@@ -523,6 +540,18 @@ impl Shader<4> {
                 include_str!("shaders/text_vertex.glsl"),
                 include_str!("shaders/text_fragment.glsl"),
                 &TEXT_SHADER_ATTR_INFO,
+            )
+        }
+    }
+}
+
+impl Shader<6> {
+    fn shape_shader() -> Self {
+        unsafe {
+            Shader::new(
+                include_str!("shaders/shape_vertex.glsl"),
+                include_str!("shaders/shape_fragment.glsl"),
+                &SHAPE_SHADER_ATTR_INFO,
             )
         }
     }
