@@ -114,7 +114,7 @@ pub fn main() {
     let text_shader = Shader::text_shader();
     // TODO: currently bugged. Probably need to disable the attribs before
     // enabling the others
-    // let shape_shader = Shader::shape_shader();
+    let shape_shader = Shader::shape_shader();
 
     // setup glyph atlas TODO: move this into new
     let mut texture1 = 0;
@@ -298,10 +298,12 @@ fn render_text(
         let mut x0 = x_start;
         for c in line.chars() {
             let (vertices, ax, ay) = atlas.get_glyph_data(c, x0, y0);
+            unsafe {
+                gl::BindVertexArray(text_shader.vao);
+            }
             text_shader.buffer_data(&vertices);
             unsafe {
                 // gl::GenerateMipmap(gl::TEXTURE_2D);
-                gl::BindVertexArray(text_shader.vao);
                 gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
                 // gl::DrawArrays(gl::TRIANGLES, 0, 1);
             }
@@ -437,16 +439,16 @@ impl<const N: usize> Shader<N> {
         } in attr_info
         {
             let name = c_str(attr_name);
-            let attrib_location = gl::GetAttribLocation(program_id, name.as_ptr());
-            if attrib_location < 0 {
+            let attr_location = gl::GetAttribLocation(program_id, name.as_ptr());
+            if attr_location < 0 {
                 panic!("Couldn't find attribute {attr_name}");
             }
 
-            let attrib_location = attrib_location as u32;
+            let attr_location = attr_location as u32;
             let pointer = ptr::null::<GLfloat>().wrapping_add(offset);
 
             gl::VertexAttribPointer(
-                attrib_location,
+                attr_location,
                 *size as i32,
                 gl::FLOAT,
                 gl::FALSE,
@@ -460,7 +462,7 @@ impl<const N: usize> Shader<N> {
             }
             offset += *size as usize;
 
-            gl::EnableVertexAttribArray(attrib_location);
+            gl::EnableVertexAttribArray(attr_location);
         }
         Self {
             program_id,
@@ -478,6 +480,7 @@ impl<const N: usize> Shader<N> {
         );
         unsafe {
             gl::BindVertexArray(self.vao);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
             // Safety:
             // - vbo initialised and bound
             gl::BufferData(
@@ -485,7 +488,7 @@ impl<const N: usize> Shader<N> {
                 size_of_val(data) as isize,
                 data.as_ptr() as _,
                 gl::DYNAMIC_DRAW,
-            )
+            );
         }
     }
 
