@@ -8,9 +8,9 @@ use sdl2::keyboard::{Keycode, Mod, Scancode};
 
 use std::ffi::CString;
 use std::mem::{self, size_of, size_of_val};
-use std::ptr;
 use std::str;
 use std::time::Instant;
+use std::{iter, ptr};
 
 /*  To Do
    To do eventually
@@ -111,10 +111,17 @@ pub fn main() {
         gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
     };
 
-    let text_shader = Shader::text_shader();
+    let vbo = unsafe {
+        let mut vbo = 0;
+        gl::GenBuffers(1, &mut vbo);
+        check_err();
+        vbo
+    };
+
+    let text_shader = Shader::text_shader(vbo);
     // TODO: currently bugged. Probably need to disable the attribs before
     // enabling the others
-    let shape_shader = Shader::shape_shader();
+    let shape_shader = Shader::shape_shader(vbo);
 
     // setup glyph atlas TODO: move this into new
     let mut texture1 = 0;
@@ -259,6 +266,30 @@ pub fn main() {
         }
         window.gl_swap_window();
     }
+
+    // Cleanup
+    unsafe {
+        gl::DeleteBuffers(1, &vbo);
+    }
+}
+
+#[inline]
+// TODO: switch to the callback based system
+fn check_err() {
+    let errors: Vec<_> = iter::repeat(())
+        .map_while(|_| {
+            let res = unsafe { gl::GetError() };
+            if res == gl::NO_ERROR {
+                None
+            } else {
+                Some(res)
+            }
+        })
+        .collect();
+
+    if !errors.is_empty() {
+        panic!("Error(s) occurred: {:?}", errors)
+    }
 }
 
 struct ScaleAnimation {
@@ -346,7 +377,6 @@ impl UpdateState {
 struct Shader<const N: usize> {
     program_id: GLuint,
     vao: GLuint,
-    vbo: GLuint,
     ebo: GLuint,
 }
 
@@ -382,7 +412,7 @@ impl<const N: usize> Shader<N> {
     /// ### Safety
     /// Caller must ensure that the attribute info is valid for the shader
     // TODO: make this safe (should be easy)
-    unsafe fn new(vs_src: &str, fs_src: &str, attr_info: &[AttributeInfo]) -> Self {
+    unsafe fn new(vbo: GLuint, vs_src: &str, fs_src: &str, attr_info: &[AttributeInfo]) -> Self {
         let vertex_shader_id = compile_shader(&vs_src, gl::VERTEX_SHADER);
         let fragment_shader_id = compile_shader(&fs_src, gl::FRAGMENT_SHADER);
         let program_id = {
@@ -404,11 +434,9 @@ impl<const N: usize> Shader<N> {
         gl::UseProgram(program_id);
 
         let mut vao = 0;
-        let mut vbo = 0;
         let mut ebo = 0;
 
         gl::GenVertexArrays(1, &mut vao);
-        gl::GenBuffers(1, &mut vbo);
         gl::GenBuffers(1, &mut ebo);
 
         gl::BindVertexArray(vao);
@@ -456,10 +484,8 @@ impl<const N: usize> Shader<N> {
                 pointer as _,
             );
 
-            let err = gl::GetError();
-            if err != gl::NO_ERROR {
-                panic!("Error occurred {err}") // TODO? better error handling?
-            }
+            check_err();
+
             offset += *size as usize;
 
             gl::EnableVertexAttribArray(attr_location);
@@ -468,7 +494,6 @@ impl<const N: usize> Shader<N> {
             program_id,
             vao,
             ebo,
-            vbo,
         }
     }
 
@@ -480,7 +505,6 @@ impl<const N: usize> Shader<N> {
         );
         unsafe {
             gl::BindVertexArray(self.vao);
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
             // Safety:
             // - vbo initialised and bound
             gl::BufferData(
@@ -536,10 +560,11 @@ impl<const N: usize> Shader<N> {
 }
 
 impl Shader<4> {
-    fn text_shader() -> Shader<4> {
+    fn text_shader(vbo: GLuint) -> Shader<4> {
         unsafe {
             // Safety: the sizes in TEXT_SHADER_ATTR_INFO sum up to 4
             Shader::new(
+                vbo,
                 include_str!("shaders/text_vertex.glsl"),
                 include_str!("shaders/text_fragment.glsl"),
                 &TEXT_SHADER_ATTR_INFO,
@@ -549,9 +574,10 @@ impl Shader<4> {
 }
 
 impl Shader<6> {
-    fn shape_shader() -> Self {
+    fn shape_shader(vbo: GLuint) -> Self {
         unsafe {
             Shader::new(
+                vbo,
                 include_str!("shaders/shape_vertex.glsl"),
                 include_str!("shaders/shape_fragment.glsl"),
                 &SHAPE_SHADER_ATTR_INFO,
@@ -569,7 +595,6 @@ impl<const N: usize> Drop for Shader<N> {
         unsafe {
             gl::DeleteProgram(self.program_id);
             gl::DeleteVertexArrays(1, &self.vao);
-            gl::DeleteBuffers(1, &self.vbo);
             gl::DeleteBuffers(1, &self.ebo);
         };
     }
