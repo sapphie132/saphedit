@@ -114,6 +114,14 @@ impl GlyphAtlas {
     pub fn get_glyph_data(&mut self, c: char, x0: f64, y0: f64) -> ([[GLfloat; 4]; 4], f64, f64) {
         self.get_current().get_glyph_data(c, x0, y0)
     }
+
+    pub fn ascender(&self) -> f64 {
+        self.get_current().ascender
+    }
+
+    pub fn descender(&self) -> f64 {
+        self.get_current().descender
+    }
 }
 
 struct GlyphMap {
@@ -126,6 +134,8 @@ struct GlyphMap {
     unknown_position: AtlasIndex,
     scale: f64,
     line_height: f64,
+    ascender: f64,
+    descender: f64,
 }
 
 impl GlyphMap {
@@ -147,13 +157,17 @@ impl GlyphMap {
         let unknown_position = push_pixels(glyph, &mut pixel_buffer, buffer_width, scale);
         let metrics = rasteriser.metrics(font_key, Size::new(1.))?;
 
+        let line_height = metrics.line_height as f64 * scale;
+        let descender = metrics.descent as f64 * scale;
         let mut res = Self {
             scale,
             pixel_buffer,
             buffer_width,
             glyphs: HashMap::new(),
             font_key,
-            line_height: metrics.line_height as f64 * scale,
+            line_height,
+            descender,
+            ascender: descender + line_height,
             unknown_position,
         };
 
@@ -186,7 +200,6 @@ impl GlyphMap {
             self.glyphs.insert(c, glyph_info);
         }
     }
-
     // TODO: remove this function (and integrate it somewhere else)
     pub unsafe fn upload_texture(&self, texture1: GLuint) {
         gl::ActiveTexture(gl::TEXTURE0);

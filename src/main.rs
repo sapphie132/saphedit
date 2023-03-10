@@ -18,6 +18,7 @@ use std::{iter, ptr};
    - Add font picker
 */
 
+const MAX_SCALE: f32 = 64.;
 mod atlas;
 mod rope;
 macro_rules! log_err {
@@ -142,7 +143,7 @@ pub fn main() {
 
     let mut screen_size = window.drawable_size();
     let mut text_buffer = String::new();
-    let mut last_camera_scale = 1.;
+    let mut last_camera_scale = MAX_SCALE;
     let mut atlas = GlyphAtlas::new(rast, font_key, texture1);
     let mut last_recorded_frame = 0;
     let mut scale_animation = ScaleAnimation {
@@ -227,7 +228,7 @@ pub fn main() {
             let scale_y = new_screen_size.1 as f64 / text_h;
             // Empirical maximum size. It should be possible to get an actual maximum size
             // (TODO)
-            let new_scale = scale_x.min(scale_y).max(8.).min(64.);
+            let new_scale = scale_x.min(scale_y).max(8.).min(MAX_SCALE.into());
             scale_animation = ScaleAnimation {
                 start_value: scale_animation.actual_scale(),
                 end_value: new_scale as f32,
@@ -262,7 +263,26 @@ pub fn main() {
             text_shader.uniform1f("scale", camera_scale);
             text_shader.uniform2i("screenSize", [width as i32, height as i32]);
 
-            render_text(&text_buffer, &mut atlas, 0., 0., &text_shader);
+            // Rendering logic put into separate functions to alleviate nesting
+            let cursor_coords = render_text(
+                &text_buffer,
+                &mut atlas,
+                0.,
+                0.,
+                0,
+                text_buffer.len(),
+                &text_shader,
+            );
+
+            shape_shader.r#use();
+            text_shader.uniform1f("scale", camera_scale);
+            text_shader.uniform2i("screenSize", [width as i32, height as i32]);
+            render_cursor(
+                &shape_shader,
+                cursor_coords,
+                atlas.ascender(),
+                atlas.descender(),
+            );
         }
         window.gl_swap_window();
     }
@@ -311,6 +331,27 @@ impl ScaleAnimation {
     }
 }
 
+fn render_cursor(
+    shape_shader: &Shader<6>,
+    cursor_coords: (f64, f64),
+    ascender: f64,
+    descender: f64,
+) {
+    let x = cursor_coords.0 as f32;
+    let y = cursor_coords.1 as f32;
+    let asc = ascender as f32;
+    let dsc = descender as f32;
+    let vertices = [
+        [x + 1., y - dsc, 1., 1., 1., 0.5],
+        [x + 1., y - asc, 1., 1., 1., 0.5],
+        [x, y - asc, 1., 1., 1., 0.5],
+        [x, y - dsc, 1., 1., 1., 0.5],
+    ];
+
+    shape_shader.buffer_data(&vertices);
+    unsafe { gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null()) }
+}
+
 // TODO: when building atlas, keep track of width of all characters (and be able
 // to predict how wide some text will be)
 // also I really need to document this kek
@@ -319,31 +360,34 @@ fn render_text(
     atlas: &mut GlyphAtlas,
     x_start: f64,
     y_start: f64,
+    cursor_row: usize,
+    cursor_col: usize,
     text_shader: &Shader<4>,
-) {
+) -> (f64, f64) {
     let line_height = atlas.line_height();
 
     atlas.add_characters(text.chars());
     let mut y0 = y_start;
-    for line in text.lines() {
+    let mut cursor_coords = (x_start, y_start);
+    for (row_idx, line) in text.lines().enumerate() {
         let mut x0 = x_start;
-        for c in line.chars() {
+        for (col_idx, c) in line.chars().enumerate() {
             let (vertices, ax, ay) = atlas.get_glyph_data(c, x0, y0);
-            unsafe {
-                gl::BindVertexArray(text_shader.vao);
-            }
             text_shader.buffer_data(&vertices);
             unsafe {
-                // gl::GenerateMipmap(gl::TEXTURE_2D);
                 gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
-                // gl::DrawArrays(gl::TRIANGLES, 0, 1);
             }
 
             x0 += ax;
             y0 += ay;
+            if col_idx + 1 == cursor_col && row_idx == cursor_row {
+                cursor_coords = (x0, y0)
+            }
         }
         y0 += line_height;
     }
+
+    cursor_coords
 }
 
 #[repr(C, packed)]
