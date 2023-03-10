@@ -9,7 +9,7 @@ use sdl2::keyboard::{Keycode, Mod, Scancode};
 use std::ffi::CString;
 use std::mem::{self, size_of, size_of_val};
 use std::str;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 use std::{iter, ptr};
 
 /*  To Do
@@ -19,6 +19,9 @@ use std::{iter, ptr};
 */
 
 const MAX_SCALE: f32 = 64.;
+const REDRAW_EVERY: u64 = 1 << 30;
+const BLINK_TIME: Duration = Duration::from_millis(500);
+
 mod atlas;
 mod rope;
 macro_rules! log_err {
@@ -68,7 +71,6 @@ fn compile_shader(src: &str, ty: GLenum) -> u32 {
     shader
 }
 
-const REDRAW_EVERY: u64 = 1 << 30;
 
 pub fn main() {
     let font_desc = FontDesc::new(
@@ -151,6 +153,9 @@ pub fn main() {
         start_value: last_camera_scale as f32,
         end_value: last_camera_scale as f32,
     };
+
+    let mut last_cursor_visible = false;
+    let run_timer = Instant::now();
     'running: for frame_counter in 0.. {
         let mut state = UpdateState::new();
         let kbs = event_pump.keyboard_state();
@@ -242,6 +247,13 @@ pub fn main() {
 
         atlas.select_scale(camera_scale);
 
+        // Cursor update
+        let time_period = (run_timer.elapsed().as_secs_f32() / BLINK_TIME.as_secs_f32()) as u32;
+        let cursor_visible = time_period % 2 == 0;
+        state.blink_change = cursor_visible ^ last_cursor_visible;
+        last_cursor_visible = cursor_visible;
+
+
         // Dear Princess Celestia
         // I fucking hate indentation
         // Your faithful student
@@ -282,6 +294,7 @@ pub fn main() {
                 cursor_coords,
                 atlas.ascender(),
                 atlas.descender(),
+                cursor_visible,
             );
         }
         window.gl_swap_window();
@@ -336,16 +349,18 @@ fn render_cursor(
     cursor_coords: (f64, f64),
     ascender: f64,
     descender: f64,
+    cursor_visible: bool
 ) {
     let x = cursor_coords.0 as f32;
     let y = cursor_coords.1 as f32;
     let asc = ascender as f32;
     let dsc = descender as f32;
+    let alpha = 0.25 + cursor_visible as u8 as f32 * 0.5;
     let vertices = [
-        [x + 1., y - dsc, 1., 1., 1., 0.5],
-        [x + 1., y - asc, 1., 1., 1., 0.5],
-        [x, y - asc, 1., 1., 1., 0.5],
-        [x, y - dsc, 1., 1., 1., 0.5],
+        [x + 1., y - dsc, 1., 1., 1., alpha],
+        [x + 1., y - asc, 1., 1., 1., alpha],
+        [x, y - asc, 1., 1., 1., alpha],
+        [x, y - dsc, 1., 1., 1., alpha],
     ];
 
     shape_shader.buffer_data(&vertices);
@@ -397,6 +412,7 @@ struct UpdateState {
     rescale: bool,
     timed: bool,
     animating: bool,
+    blink_change: bool,
 }
 
 impl UpdateState {
