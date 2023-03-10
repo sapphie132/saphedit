@@ -22,6 +22,7 @@ const INSERT_CURSOR_WIDTH: f32 = 0.25;
 const MAX_SCALE: f32 = 64.;
 const REDRAW_EVERY: u64 = 1 << 20;
 const BLINK_TIME: Duration = Duration::from_millis(500);
+const MARGIN: f64 = 1.5;
 
 mod atlas;
 mod rope;
@@ -230,7 +231,7 @@ pub fn main() {
         // Update text size
         if state.text || state.resize {
             let (text_w, text_h) = atlas.measure_dims(text_buffer.chars());
-            let scale_x = new_screen_size.0 as f64 / text_w;
+            let scale_x = new_screen_size.0 as f64 / (text_w + 2. * MARGIN);
             let scale_y = new_screen_size.1 as f64 / text_h;
             // Empirical maximum size. It should be possible to get an actual maximum size
             // (TODO)
@@ -280,7 +281,7 @@ pub fn main() {
             let cursor_coords = render_text(
                 &text_buffer,
                 &mut atlas,
-                0.,
+                MARGIN as f64,
                 0.,
                 0,
                 text_buffer.len(),
