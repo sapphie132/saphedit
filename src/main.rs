@@ -18,8 +18,9 @@ use std::{iter, ptr};
    - Add font picker
 */
 
+const INSERT_CURSOR_WIDTH: f32 = 0.25;
 const MAX_SCALE: f32 = 64.;
-const REDRAW_EVERY: u64 = 1 << 30;
+const REDRAW_EVERY: u64 = 1 << 20;
 const BLINK_TIME: Duration = Duration::from_millis(500);
 
 mod atlas;
@@ -356,11 +357,13 @@ fn render_cursor(
     let asc = ascender as f32;
     let dsc = descender as f32;
     let alpha = 0.25 + cursor_visible as u8 as f32 * 0.5;
+    let x1 = x;
+    let x2 = x1 + INSERT_CURSOR_WIDTH;
     let vertices = [
-        [x + 1., y - dsc, 1., 1., 1., alpha],
-        [x + 1., y - asc, 1., 1., 1., alpha],
-        [x, y - asc, 1., 1., 1., alpha],
-        [x, y - dsc, 1., 1., 1., alpha],
+        [x2, y - dsc, 1., 1., 1., alpha],
+        [x2, y - asc, 1., 1., 1., alpha],
+        [x1, y - asc, 1., 1., 1., alpha],
+        [x1, y - dsc, 1., 1., 1., alpha],
     ];
 
     shape_shader.buffer_data(&vertices);
