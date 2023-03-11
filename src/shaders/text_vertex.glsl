@@ -3,12 +3,14 @@ layout (location = 0) in vec2 aPos;
 layout (location = 1) in vec2 aTexCoord;
 uniform ivec2 screenSize;
 uniform float scale;
+uniform float yCenter;
 
 out vec2 texCoord;
 
 void main()
 {
 	vec2 screenPos = aPos;
+	screenPos.y -= yCenter;
 	screenPos /= screenSize;
 	screenPos *= 2 * scale;
 	screenPos.x -= 1.0;

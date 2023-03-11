@@ -157,7 +157,7 @@ pub fn main() {
         end_value: last_camera_scale as f32,
     };
 
-    let mut line_count = 0;
+    let mut _line_count = 0;
     let mut cursor_row = 0;
     let mut cursor_col = 0;
 
@@ -182,7 +182,7 @@ pub fn main() {
                     let removed_char = text_buffer.pop();
                     state.text |= removed_char.is_some();
                     if removed_char == (Some('\n')) {
-                        line_count -= 1;
+                        _line_count -= 1;
                         // TODO: handle col
                         cursor_row -= 1;
                     }
@@ -212,7 +212,7 @@ pub fn main() {
                 } => {
                     text_buffer.push_str("\n");
                     state.text = true;
-                    line_count += 1;
+                    _line_count += 1;
                     cursor_col = 0;
                     cursor_row += 1;
                 }
@@ -283,6 +283,7 @@ pub fn main() {
         }
 
         unsafe {
+            let y_center = cursor_row as f32 * atlas.line_height() as f32 - 0.5;
             let (width, height) = screen_size;
             gl::Viewport(0, 0, width as i32, height as i32);
             gl::ClearColor(0.2, 0.3, 0.3, 1.);
@@ -294,8 +295,8 @@ pub fn main() {
             text_shader.uniform4vf("color", color_black);
             text_shader.uniform1f("scale", camera_scale);
             text_shader.uniform2i("screenSize", [width as i32, height as i32]);
+            text_shader.uniform1f("yCenter", y_center);
 
-            println!("{} {}", cursor_col, cursor_row);
             // Rendering logic put into separate functions to alleviate nesting
             let cursor_coords = render_text(
                 &text_buffer,
@@ -308,8 +309,9 @@ pub fn main() {
             );
 
             shape_shader.r#use();
-            text_shader.uniform1f("scale", camera_scale);
-            text_shader.uniform2i("screenSize", [width as i32, height as i32]);
+            shape_shader.uniform1f("scale", camera_scale);
+            shape_shader.uniform2i("screenSize", [width as i32, height as i32]);
+            shape_shader.uniform1f("yCenter", y_center);
             render_cursor(
                 &shape_shader,
                 cursor_coords,
