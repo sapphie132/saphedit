@@ -9,7 +9,7 @@ use sdl2::keyboard::{Keycode, Mod, Scancode};
 use std::ffi::CString;
 use std::mem::{self, size_of, size_of_val};
 use std::str;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 use std::{iter, ptr};
 
 /*  To Do
@@ -23,6 +23,9 @@ const MAX_SCALE: f32 = 64.;
 const REDRAW_EVERY: u64 = 1 << 20;
 const BLINK_TIME: Duration = Duration::from_millis(500);
 const MARGIN: f64 = 1.5;
+const SCALE_ANIM_TIME: Duration = Duration::from_millis(200);
+const SCROLL_ANIM_TIME: Duration = Duration::from_millis(100);
+const CENTER_OFFSET: f32 = -0.5;
 
 mod atlas;
 mod rope;
@@ -72,7 +75,6 @@ fn compile_shader(src: &str, ty: GLenum) -> u32 {
     }
     shader
 }
-
 
 pub fn main() {
     let font_desc = FontDesc::new(
@@ -151,11 +153,21 @@ pub fn main() {
     let mut last_camera_scale = MAX_SCALE;
     let mut atlas = GlyphAtlas::new(rast, font_key, texture1);
     let mut last_recorded_frame = 0;
-    let mut scale_animation = ScaleAnimation {
+    let mut scale_animation = TimeInterpolator {
         start,
         start_value: last_camera_scale as f32,
+        duration: SCALE_ANIM_TIME,
         end_value: last_camera_scale as f32,
     };
+
+    let mut last_center_y = CENTER_OFFSET;
+    let mut scroll_animation = TimeInterpolator {
+        start,
+        start_value: last_center_y,
+        end_value: last_center_y,
+        duration: SCROLL_ANIM_TIME,
+    };
+
 
     let mut _line_count = 0;
     let mut cursor_row = 0;
@@ -254,14 +266,10 @@ pub fn main() {
             // Empirical maximum size. It should be possible to get an actual maximum size
             // (TODO)
             let new_scale = scale_x.min(scale_y).max(8.).min(MAX_SCALE.into());
-            scale_animation = ScaleAnimation {
-                start_value: scale_animation.actual_scale(),
-                end_value: new_scale as f32,
-                start: Instant::now(),
-            };
+            scale_animation.reset(new_scale as f32);
         }
 
-        let camera_scale = scale_animation.actual_scale();
+        let camera_scale = scale_animation.interpolated_value();
         state.rescale |= camera_scale != last_camera_scale;
         last_camera_scale = camera_scale;
 
@@ -273,6 +281,12 @@ pub fn main() {
         state.blink_change = cursor_visible ^ last_cursor_visible;
         last_cursor_visible = cursor_visible;
 
+        let y_center_new = cursor_row as f32 * atlas.line_height() as f32 + CENTER_OFFSET;
+        state.scroll |= y_center_new != last_center_y;
+        if state.scroll {
+            scroll_animation.reset(y_center_new);
+        }
+        last_center_y = scroll_animation.interpolated_value();
 
         // Dear Princess Celestia
         // I fucking hate indentation
@@ -283,7 +297,6 @@ pub fn main() {
         }
 
         unsafe {
-            let y_center = cursor_row as f32 * atlas.line_height() as f32 - 0.5;
             let (width, height) = screen_size;
             gl::Viewport(0, 0, width as i32, height as i32);
             gl::ClearColor(0.2, 0.3, 0.3, 1.);
@@ -295,7 +308,7 @@ pub fn main() {
             text_shader.uniform4vf("color", color_black);
             text_shader.uniform1f("scale", camera_scale);
             text_shader.uniform2i("screenSize", [width as i32, height as i32]);
-            text_shader.uniform1f("yCenter", y_center);
+            text_shader.uniform1f("yCenter", last_center_y);
 
             // Rendering logic put into separate functions to alleviate nesting
             let cursor_coords = render_text(
@@ -311,7 +324,7 @@ pub fn main() {
             shape_shader.r#use();
             shape_shader.uniform1f("scale", camera_scale);
             shape_shader.uniform2i("screenSize", [width as i32, height as i32]);
-            shape_shader.uniform1f("yCenter", y_center);
+            shape_shader.uniform1f("yCenter", last_center_y);
             render_cursor(
                 &shape_shader,
                 cursor_coords,
@@ -348,22 +361,28 @@ fn check_err() {
     }
 }
 
-struct ScaleAnimation {
+struct TimeInterpolator {
     pub start: Instant,
+    pub duration: Duration,
     pub start_value: f32,
     pub end_value: f32,
 }
 
-impl ScaleAnimation {
-    const ANIM_TIME_S: f32 = 0.2;
-    pub fn actual_scale(&self) -> f32 {
+impl TimeInterpolator {
+    pub fn interpolated_value(&self) -> f32 {
         let elapsed_s = self.start.elapsed().as_secs_f32();
-        let percent_elapsed = elapsed_s / Self::ANIM_TIME_S;
+        let percent_elapsed = elapsed_s / self.duration.as_secs_f32();
         if percent_elapsed <= 1. {
             (self.end_value - self.start_value) * percent_elapsed + self.start_value
         } else {
             self.end_value
         }
+    }
+
+    pub fn reset(&mut self, new_value: f32) {
+        self.start_value = self.interpolated_value();
+        self.end_value = new_value;
+        self.start = Instant::now();
     }
 }
 
@@ -372,7 +391,7 @@ fn render_cursor(
     cursor_coords: (f64, f64),
     ascender: f64,
     descender: f64,
-    cursor_visible: bool
+    cursor_visible: bool,
 ) {
     let x = cursor_coords.0 as f32;
     let y = cursor_coords.1 as f32;
@@ -442,6 +461,7 @@ struct UpdateState {
     timed: bool,
     animating: bool,
     blink_change: bool,
+    scroll: bool,
 }
 
 impl UpdateState {
