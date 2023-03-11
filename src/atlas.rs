@@ -11,7 +11,7 @@ use crossfont::{
 };
 
 #[derive(Clone, Copy)]
-struct RGBA([u8; 4]);
+struct Rgba([u8; 4]);
 
 /// Represents where a glyph is in memory
 #[derive(Clone, Copy)]
@@ -38,15 +38,18 @@ impl GlyphAtlas {
     pub const SCALE_STEP: f32 = 0.25;
     pub const MIN_SCALE: u32 = (4. / Self::SCALE_STEP) as u32;
     fn get_current(&self) -> impl Deref<Target = GlyphMap> + '_ {
-        if !self.sizes.borrow_mut().contains_key(&self.current_scale) {
-            let new_gmap = GlyphMap::new(
-                &mut *self.rasteriser.borrow_mut(),
-                self.font_key,
-                self.current_scale as f32 * Self::SCALE_STEP,
-            )
-            .unwrap(); // TODO: figure out how to handle errors
-            self.sizes.borrow_mut().insert(self.current_scale, new_gmap);
-        }
+        self.sizes
+            .borrow_mut()
+            .entry(self.current_scale)
+            .or_insert_with(|| {
+                let new_gmap = GlyphMap::new(
+                    &mut self.rasteriser.borrow_mut(),
+                    self.font_key,
+                    self.current_scale as f32 * Self::SCALE_STEP,
+                )
+                .unwrap(); // TODO: figure out how to handle errors
+                new_gmap
+            });
 
         Ref::map(self.sizes.borrow(), |sizes| {
             sizes
@@ -56,15 +59,18 @@ impl GlyphAtlas {
     }
 
     fn get_current_mut(&self) -> impl DerefMut<Target = GlyphMap> + '_ {
-        if !self.sizes.borrow_mut().contains_key(&self.current_scale) {
-            let new_gmap = GlyphMap::new(
-                &mut *self.rasteriser.borrow_mut(),
-                self.font_key,
-                self.current_scale as f32 * Self::SCALE_STEP,
-            )
-            .unwrap(); // TODO: figure out how to handle errors
-            self.sizes.borrow_mut().insert(self.current_scale, new_gmap);
-        }
+        self.sizes
+            .borrow_mut()
+            .entry(self.current_scale)
+            .or_insert_with(|| {
+                let new_gmap = GlyphMap::new(
+                    &mut self.rasteriser.borrow_mut(),
+                    self.font_key,
+                    self.current_scale as f32 * Self::SCALE_STEP,
+                )
+                .unwrap(); // TODO: figure out how to handle errors
+                new_gmap
+            });
 
         RefMut::map(self.sizes.borrow_mut(), |sizes| {
             sizes
@@ -87,14 +93,14 @@ impl GlyphAtlas {
         let scale_rounded = (scale / Self::SCALE_STEP).round() as u32;
         if self.current_scale != scale_rounded {
             self.current_scale = scale_rounded;
-            unsafe { GlyphMap::upload_texture(&*self.get_current(), self.texture1) };
+            unsafe { GlyphMap::upload_texture(&self.get_current(), self.texture1) };
         }
     }
 
     pub fn add_characters<I: Iterator<Item = char>>(&mut self, chars: I) {
         let mut map = self.get_current_mut();
         let old_height = GlyphMap::buffer_height(&map);
-        map.add_characters(chars, &mut *self.rasteriser.borrow_mut());
+        map.add_characters(chars, &mut self.rasteriser.borrow_mut());
         let new_height = GlyphMap::buffer_height(&map);
         if old_height != new_height {
             unsafe {
@@ -126,7 +132,7 @@ impl GlyphAtlas {
 
 struct GlyphMap {
     /// Stores the glyphs
-    pixel_buffer: Vec<RGBA>,
+    pixel_buffer: Vec<Rgba>,
     buffer_width: usize,
     glyphs: HashMap<char, AtlasIndex>,
     font_key: FontKey,
@@ -205,13 +211,12 @@ impl GlyphMap {
         gl::ActiveTexture(gl::TEXTURE0);
         gl::BindTexture(gl::TEXTURE_2D, texture1);
 
-        let flattened: Vec<_> = self
+        let flattened = self
             .pixel_buffer
             .iter()
-            .flat_map(|rgba| rgba.0.iter().copied())
-            .collect();
+            .flat_map(|rgba| rgba.0.iter().copied());
 
-        let fl = flattened.len();
+        let fl = flattened.count();
 
         assert!(fl == 4 * self.pixel_buffer.len());
 
@@ -285,10 +290,10 @@ fn get_glyph(
     rasteriser.get_glyph(glyph_key)
 }
 
-fn expand_width(bitmap: Vec<RGBA>, src_width: usize, dest_width: usize) -> Vec<RGBA> {
+fn expand_width(bitmap: Vec<Rgba>, src_width: usize, dest_width: usize) -> Vec<Rgba> {
     debug_assert!(src_width <= dest_width);
     if src_width == 0 {
-        return vec![RGBA([0x00; 4]); dest_width];
+        return vec![Rgba([0x00; 4]); dest_width];
     }
     bitmap
         .chunks_exact(src_width)
@@ -297,7 +302,7 @@ fn expand_width(bitmap: Vec<RGBA>, src_width: usize, dest_width: usize) -> Vec<R
             orig_row
                 .iter()
                 .copied()
-                .chain(repeat(RGBA([0x00; 4])))
+                .chain(repeat(Rgba([0x00; 4])))
                 .take(dest_width)
         })
         .collect()
@@ -305,7 +310,7 @@ fn expand_width(bitmap: Vec<RGBA>, src_width: usize, dest_width: usize) -> Vec<R
 
 fn push_pixels(
     glyph: RasterizedGlyph,
-    pixel_buffer: &mut Vec<RGBA>,
+    pixel_buffer: &mut Vec<Rgba>,
     buffer_width: usize,
     scale: f64,
 ) -> AtlasIndex {
@@ -319,18 +324,18 @@ fn push_pixels(
                 for (res_el, &chunk_el) in res.iter_mut().zip(chunk) {
                     *res_el = chunk_el
                 }
-                RGBA(res)
+                Rgba(res)
             })
             .collect(),
         BitmapBuffer::Rgba(v) => v
             .chunks_exact(4)
-            .map(|slice| RGBA(slice.try_into().expect("We used a chunk size of 4")))
+            .map(|slice| Rgba(slice.try_into().expect("We used a chunk size of 4")))
             .collect(),
     };
     let new_pixels: Vec<_> = expand_width(pixels, glyph.width as usize, buffer_width);
     let y_index = pixel_buffer.len() / buffer_width;
     pixel_buffer.extend(new_pixels);
-    pixel_buffer.extend(repeat(RGBA([0; 4])).take(buffer_width));
+    pixel_buffer.extend(repeat(Rgba([0; 4])).take(buffer_width));
     let (ax, ay) = glyph.advance;
     AtlasIndex {
         y_index,

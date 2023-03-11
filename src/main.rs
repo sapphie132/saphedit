@@ -222,7 +222,7 @@ pub fn main() {
                     keycode: Some(Keycode::Return),
                     ..
                 } => {
-                    text_buffer.push_str("\n");
+                    text_buffer.push('\n');
                     state.text = true;
                     _line_count += 1;
                     cursor_col = 0;
@@ -522,8 +522,8 @@ impl<const N: usize> Shader<N> {
     /// Caller must ensure that the attribute info is valid for the shader
     // TODO: make this safe (should be easy)
     unsafe fn new(vbo: GLuint, vs_src: &str, fs_src: &str, attr_info: &[AttributeInfo]) -> Self {
-        let vertex_shader_id = compile_shader(&vs_src, gl::VERTEX_SHADER);
-        let fragment_shader_id = compile_shader(&fs_src, gl::FRAGMENT_SHADER);
+        let vertex_shader_id = compile_shader(vs_src, gl::VERTEX_SHADER);
+        let fragment_shader_id = compile_shader(fs_src, gl::FRAGMENT_SHADER);
         let program_id = {
             let shader_program = gl::CreateProgram();
             gl::AttachShader(shader_program, vertex_shader_id);
@@ -560,7 +560,7 @@ impl<const N: usize> Shader<N> {
         gl::BufferData(
             gl::ELEMENT_ARRAY_BUFFER,
             size_of_val(&indices) as isize,
-            mem::transmute(&indices),
+            &indices as *const _ as _,
             gl::DYNAMIC_DRAW,
         );
 
