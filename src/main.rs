@@ -168,7 +168,6 @@ pub fn main() {
         duration: SCROLL_ANIM_TIME,
     };
 
-
     let mut _line_count = 0;
     let mut cursor_row = 0;
     let mut cursor_col = 0;
@@ -410,7 +409,7 @@ fn render_cursor(
         [x1, y - dsc, 1., 1., 1., alpha],
     ];
 
-    shape_shader.buffer_data(&vertices);
+    shape_shader.upload_rectangles(&[vertices]);
     unsafe { gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null()) }
 }
 
@@ -431,14 +430,13 @@ fn render_text(
     atlas.add_characters(text.chars());
     let mut y0 = y_start;
     let mut cursor_coords = (x_start, y_start);
+
+    let mut vertices_full = vec![];
     for (row_idx, line) in text.split('\n').enumerate() {
         let mut x0 = x_start;
         for (col_idx, c) in line.chars().enumerate() {
             let (vertices, ax, ay) = atlas.get_glyph_data(c, x0, y0);
-            text_shader.buffer_data(&vertices);
-            unsafe {
-                gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
-            }
+            vertices_full.push(vertices);
 
             x0 += ax;
             y0 += ay;
@@ -453,6 +451,12 @@ fn render_text(
         y0 += line_height;
     }
 
+    text_shader.upload_rectangles(&vertices_full);
+    check_err();
+    unsafe {
+        gl::DrawElements(gl::TRIANGLES, (vertices_full.len() * 6) as i32, gl::UNSIGNED_INT, ptr::null());
+    }
+    check_err();
     cursor_coords
 }
 
@@ -555,17 +559,6 @@ impl<const N: usize> Shader<N> {
         gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
 
         gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
-        let indices = [
-            1, 2, 3, // Second triangle
-            0, 1, 3, // first triangle
-        ];
-
-        gl::BufferData(
-            gl::ELEMENT_ARRAY_BUFFER,
-            size_of_val(&indices) as isize,
-            &indices as *const _ as _,
-            gl::DYNAMIC_DRAW,
-        );
 
         let stride: u32 = attr_info
             .iter()
@@ -609,14 +602,38 @@ impl<const N: usize> Shader<N> {
         }
     }
 
-    fn buffer_data(&self, data: &[[f32; N]]) {
-        // TODO: make this work for longer arrays
-        assert!(
-            data.len() == 4,
-            "data needs to have an even number of triangles"
-        );
+    /// Uploads the rectangles present in data to the GPU. The innermost array
+    /// is the vertex data uploaded to each vertex. Each entry of the outermost
+    /// array has 4 sub-entries, in this order:
+    /// * top right
+    /// * bottom right
+    /// * bottom left
+    /// * top left
+    fn upload_rectangles(&self, data: &[[[f32; N]; 4]]) {
+        if data.len() == 0 {
+            return;
+        }
+
+        let indices = (0..data.len())
+            .flat_map(|n| {
+                let offset = n as GLuint * 4;
+                [
+                    [offset + 1, offset + 2, offset + 3],
+                    [offset + 0, offset + 1, offset + 3],
+                ]
+            })
+            .collect::<Vec<_>>();
+
         unsafe {
             gl::BindVertexArray(self.vao);
+            let elem_array_size = size_of_val(indices.as_slice());
+            gl::BufferData(
+                gl::ELEMENT_ARRAY_BUFFER,
+                elem_array_size as isize,
+                indices.as_ptr() as _,
+                gl::DYNAMIC_DRAW,
+            );
+
             // Safety:
             // - vbo initialised and bound
             gl::BufferData(
