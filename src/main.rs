@@ -192,7 +192,10 @@ pub fn main() {
                     ..
                 } => {
                     let removed_char = text_buffer.pop();
-                    state.text |= removed_char.is_some();
+                    if removed_char.is_some() {
+                        state.text = true;
+                        cursor_col -= 1;
+                    }
                     if removed_char == (Some('\n')) {
                         _line_count -= 1;
                         // TODO: handle col
