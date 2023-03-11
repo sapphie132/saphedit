@@ -146,6 +146,7 @@ pub fn main() {
     }
 
     let mut screen_size = window.drawable_size();
+    // Buffer for the text edited on screen. Lines are \n terminated
     let mut text_buffer = String::new();
     let mut last_camera_scale = MAX_SCALE;
     let mut atlas = GlyphAtlas::new(rast, font_key, texture1);
@@ -155,6 +156,10 @@ pub fn main() {
         start_value: last_camera_scale as f32,
         end_value: last_camera_scale as f32,
     };
+
+    let mut line_count = 0;
+    let mut cursor_row = 0;
+    let mut cursor_col = 0;
 
     let mut last_cursor_visible = false;
     let run_timer = Instant::now();
@@ -174,7 +179,13 @@ pub fn main() {
                     keycode: Some(Keycode::Backspace),
                     ..
                 } => {
-                    state.text |= text_buffer.pop().is_some();
+                    let removed_char = text_buffer.pop();
+                    state.text |= removed_char.is_some();
+                    if removed_char == (Some('\n')) {
+                        line_count -= 1;
+                        // TODO: handle col
+                        cursor_row -= 1;
+                    }
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::C),
@@ -190,6 +201,7 @@ pub fn main() {
                 } if keymod.intersects(mod_ctrl) => match clipboard.clipboard_text() {
                     Ok(t) => {
                         text_buffer += &t;
+                        cursor_col += t.len();
                         state.text = true;
                     }
                     Err(e) => eprintln!("{}", e),
@@ -200,9 +212,15 @@ pub fn main() {
                 } => {
                     text_buffer.push_str("\n");
                     state.text = true;
+                    line_count += 1;
+                    cursor_col = 0;
+                    cursor_row += 1;
                 }
                 Event::TextInput { text, .. } if !ctrl_pressed => {
+                    // TODO: ensure there are no \r characters whenever we
+                    // are inserting text. Also, DRY this up.
                     text_buffer += &text;
+                    cursor_col += text.len();
                     state.text = true;
                 }
                 _ => {}
@@ -277,14 +295,15 @@ pub fn main() {
             text_shader.uniform1f("scale", camera_scale);
             text_shader.uniform2i("screenSize", [width as i32, height as i32]);
 
+            println!("{} {}", cursor_col, cursor_row);
             // Rendering logic put into separate functions to alleviate nesting
             let cursor_coords = render_text(
                 &text_buffer,
                 &mut atlas,
                 MARGIN as f64,
                 0.,
-                0,
-                text_buffer.len(),
+                cursor_row,
+                cursor_col,
                 &text_shader,
             );
 
@@ -388,7 +407,7 @@ fn render_text(
     atlas.add_characters(text.chars());
     let mut y0 = y_start;
     let mut cursor_coords = (x_start, y_start);
-    for (row_idx, line) in text.lines().enumerate() {
+    for (row_idx, line) in text.split('\n').enumerate() {
         let mut x0 = x_start;
         for (col_idx, c) in line.chars().enumerate() {
             let (vertices, ax, ay) = atlas.get_glyph_data(c, x0, y0);
@@ -399,9 +418,13 @@ fn render_text(
 
             x0 += ax;
             y0 += ay;
-            if col_idx + 1 == cursor_col && row_idx == cursor_row {
-                cursor_coords = (x0, y0)
+            if col_idx + 1 == cursor_col {
+                cursor_coords.0 = x0;
             }
+        }
+
+        if row_idx == cursor_row {
+            cursor_coords.1 = y0;
         }
         y0 += line_height;
     }
