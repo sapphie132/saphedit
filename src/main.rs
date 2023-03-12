@@ -110,6 +110,8 @@ pub fn main() {
 
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mod_ctrl: Mod = Mod::LCTRLMOD | Mod::RCTRLMOD;
+    // TODO: clear up usage of this timer. Can probably be replaced with
+    // run_timer
     let mut start = Instant::now();
 
     // setup blending
@@ -174,6 +176,7 @@ pub fn main() {
 
     let mut last_cursor_visible = false;
     let run_timer = Instant::now();
+
     'running: for frame_counter in 0.. {
         let mut state = UpdateState::new();
         let kbs = event_pump.keyboard_state();
@@ -199,6 +202,7 @@ pub fn main() {
                         _line_count -= 1;
                         // TODO: handle col
                         cursor_row -= 1;
+                        state.scroll = true;
                     }
                 }
                 Event::KeyDown {
@@ -229,6 +233,7 @@ pub fn main() {
                     _line_count += 1;
                     cursor_col = 0;
                     cursor_row += 1;
+                    state.scroll = true;
                 }
                 Event::TextInput { text, .. } if !ctrl_pressed => {
                     // TODO: ensure there are no \r characters whenever we
@@ -286,12 +291,14 @@ pub fn main() {
         state.blink_change = cursor_visible ^ last_cursor_visible;
         last_cursor_visible = cursor_visible;
 
-        let y_center_new = cursor_row as f32 * atlas.line_height() as f32 + CENTER_OFFSET;
-        state.scroll |= y_center_new != last_center_y;
+        // Scroll update
         if state.scroll {
-            scroll_animation.reset(y_center_new);
+            let y_center_new_target = cursor_row as f32 * atlas.line_height() as f32 + CENTER_OFFSET;
+            scroll_animation.reset(y_center_new_target);
         }
-        last_center_y = scroll_animation.interpolated_value();
+        let y_center_new = scroll_animation.interpolated_value();
+        state.animating |= y_center_new != last_center_y;
+        last_center_y = y_center_new;
 
         // Dear Princess Celestia
         // I fucking hate indentation
@@ -469,6 +476,7 @@ fn render_text(
 }
 
 #[repr(C, packed)]
+#[derive(Debug)]
 struct UpdateState {
     text: bool,
     resize: bool,
