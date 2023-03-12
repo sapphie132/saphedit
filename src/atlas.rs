@@ -17,12 +17,12 @@ struct Rgba([u8; 4]);
 #[derive(Clone, Copy)]
 struct AtlasIndex {
     y_index: usize,
-    top: f64,
-    left: f64,
-    width: f64,
-    height: f64,
-    ax: f64,
-    ay: f64,
+    top: f32,
+    left: f32,
+    width: f32,
+    height: f32,
+    ax: f32,
+    ay: f32,
 }
 
 pub struct GlyphAtlas {
@@ -79,8 +79,8 @@ impl GlyphAtlas {
         })
     }
 
-    pub fn new(rasteriser: Rasterizer, font_key: FontKey, texture1: GLuint) -> GlyphAtlas {
-        GlyphAtlas {
+    pub fn new(rasteriser: Rasterizer, font_key: FontKey, texture1: GLuint) -> Self {
+        Self {
             sizes: RefCell::new(BTreeMap::new()),
             rasteriser: RefCell::new(rasteriser),
             font_key,
@@ -109,23 +109,23 @@ impl GlyphAtlas {
         }
     }
 
-    pub fn line_height(&mut self) -> f64 {
+    pub fn line_height(&mut self) -> f32 {
         self.get_current().line_height
     }
 
-    pub fn measure_dims(&mut self, chars: impl Iterator<Item = char>) -> (f64, f64) {
+    pub fn measure_dims(&mut self, chars: impl Iterator<Item = char>) -> (f32, f32) {
         self.get_current().measure_dims(chars)
     }
 
-    pub fn get_glyph_data(&mut self, c: char, x0: f64, y0: f64) -> ([[GLfloat; 4]; 4], f64, f64) {
+    pub fn get_glyph_data(&mut self, c: char, x0: f32, y0: f32) -> ([[GLfloat; 4]; 4], f32, f32) {
         self.get_current().get_glyph_data(c, x0, y0)
     }
 
-    pub fn ascender(&self) -> f64 {
+    pub fn ascender(&self) -> f32 {
         self.get_current().ascender
     }
 
-    pub fn descender(&self) -> f64 {
+    pub fn descender(&self) -> f32 {
         self.get_current().descender
     }
 }
@@ -138,10 +138,10 @@ struct GlyphMap {
     font_key: FontKey,
     /// Position of the "unknown character" glyph
     unknown_position: AtlasIndex,
-    scale: f64,
-    line_height: f64,
-    ascender: f64,
-    descender: f64,
+    scale: f32,
+    line_height: f32,
+    ascender: f32,
+    descender: f32,
 }
 
 impl GlyphMap {
@@ -159,12 +159,12 @@ impl GlyphMap {
         let buffer_width = glyph.width as usize * Self::MAX_WIDTH_RATIO;
 
         let mut pixel_buffer = Vec::new();
-        let scale = 1. / camera_scale as f64;
+        let scale = 1. / camera_scale;
         let unknown_position = push_pixels(glyph, &mut pixel_buffer, buffer_width, scale);
         let metrics = rasteriser.metrics(font_key, Size::new(1.))?;
 
-        let line_height = metrics.line_height as f64 * scale;
-        let descender = metrics.descent as f64 * scale;
+        let line_height = metrics.line_height as f32 * scale;
+        let descender = metrics.descent as f32 * scale;
         let mut res = Self {
             scale,
             pixel_buffer,
@@ -230,11 +230,11 @@ impl GlyphMap {
             0,
             gl::RGBA,
             gl::UNSIGNED_BYTE,
-            self.pixel_buffer.as_ptr() as *const _,
+            self.pixel_buffer.as_ptr().cast(),
         );
     }
 
-    pub fn measure_dims<I: Iterator<Item = char>>(&self, chars: I) -> (f64, f64) {
+    pub fn measure_dims<I: Iterator<Item = char>>(&self, chars: I) -> (f32, f32) {
         let (w, h) = chars
             .take_while(|c| *c != '\n')
             .map(|c| self.glyphs.get(&c).unwrap_or(&self.unknown_position))
@@ -243,13 +243,13 @@ impl GlyphMap {
         (w, h + self.line_height)
     }
 
-    pub fn get_glyph_data(&self, c: char, x0: f64, y0: f64) -> ([[GLfloat; 4]; 4], f64, f64) {
+    pub fn get_glyph_data(&self, c: char, x0: f32, y0: f32) -> ([[GLfloat; 4]; 4], f32, f32) {
         let pos = self.glyphs.get(&c).unwrap_or(&self.unknown_position);
 
-        let top = pos.top as f64;
-        let left = pos.left as f64;
-        let width = pos.width as f64;
-        let height = pos.height as f64;
+        let top = pos.top;
+        let left = pos.left;
+        let width = pos.width;
+        let height = pos.height;
 
         let x1 = x0 + left;
         let x2 = x1 + width;
@@ -257,20 +257,20 @@ impl GlyphMap {
         let y1 = y0 - top;
         let y2 = y1 + height;
 
-        let num_lines = self.buffer_height() as f64;
-        let t1 = pos.y_index as f64 / num_lines;
+        let num_lines = self.buffer_height() as f32;
+        let t1 = pos.y_index as f32 / num_lines;
         // TODO: find a less awkward way to do this
         let t2 = t1 + (height / self.scale) / num_lines;
 
         let s1 = 0.;
-        let s2 = width / self.scale / self.buffer_width as f64;
+        let s2 = width / self.scale / self.buffer_width as f32;
 
         let verts = [
             //positions      // texture coordinates
-            [x2 as f32, y1 as f32, s2 as f32, t1 as f32], // top right
-            [x2 as f32, y2 as f32, s2 as f32, t2 as f32], // bottom right
-            [x1 as f32, y2 as f32, s1 as f32, t2 as f32], // bottom left
-            [x1 as f32, y1 as f32, s1 as f32, t1 as f32], // top left
+            [x2, y1, s2, t1], // top right
+            [x2, y2, s2, t2], // bottom right
+            [x1, y2, s1, t2], // bottom left
+            [x1, y1, s1, t1], // top left
         ];
 
         (verts, pos.ax, pos.ay)
@@ -312,7 +312,7 @@ fn push_pixels(
     glyph: RasterizedGlyph,
     pixel_buffer: &mut Vec<Rgba>,
     buffer_width: usize,
-    scale: f64,
+    scale: f32,
 ) -> AtlasIndex {
     // Transform into rgba (there is a bug with opengl that treats all
     // input textures as rgba)
@@ -322,7 +322,7 @@ fn push_pixels(
             .map(|chunk| {
                 let mut res = [0xff; 4];
                 for (res_el, &chunk_el) in res.iter_mut().zip(chunk) {
-                    *res_el = chunk_el
+                    *res_el = chunk_el;
                 }
                 Rgba(res)
             })
@@ -339,11 +339,11 @@ fn push_pixels(
     let (ax, ay) = glyph.advance;
     AtlasIndex {
         y_index,
-        top: glyph.top as f64 * scale,
-        left: glyph.left as f64 * scale,
-        width: glyph.width as f64 * scale,
-        height: glyph.height as f64 * scale,
-        ax: ax as f64 * scale,
-        ay: ay as f64 * scale,
+        top: glyph.top as f32 * scale,
+        left: glyph.left as f32 * scale,
+        width: glyph.width as f32 * scale,
+        height: glyph.height as f32 * scale,
+        ax: ax as f32 * scale,
+        ay: ay as f32 * scale,
     }
 }

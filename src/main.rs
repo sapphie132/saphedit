@@ -2,7 +2,7 @@ extern crate sdl2;
 
 use atlas::GlyphAtlas;
 use crossfont::{FontDesc, Rasterize, Rasterizer, Size, Slant, Style, Weight};
-use gl::types::{GLchar, GLenum, GLfloat, GLint, GLuint};
+use gl::types::{GLenum, GLfloat, GLint, GLuint};
 use sdl2::event::Event;
 use sdl2::keyboard::{Keycode, Mod, Scancode};
 
@@ -22,7 +22,7 @@ const INSERT_CURSOR_WIDTH: f32 = 0.25;
 const MAX_SCALE: f32 = 64.;
 const REDRAW_EVERY: u64 = 1 << 20;
 const BLINK_TIME: Duration = Duration::from_millis(500);
-const MARGIN: f64 = 1.5;
+const MARGIN: f32 = 1.5;
 const SCALE_ANIM_TIME: Duration = Duration::from_millis(200);
 const SCROLL_ANIM_TIME: Duration = Duration::from_millis(100);
 const CENTER_OFFSET: f32 = -0.5;
@@ -49,7 +49,7 @@ macro_rules! gl_err {
             let mut len = 0;
             $iv_fun($id, gl::INFO_LOG_LENGTH, &mut len);
             let mut buf = vec![0; len as usize];
-            $info_fun($id, len, ptr::null_mut(), buf.as_mut_ptr() as *mut GLchar);
+            $info_fun($id, len, ptr::null_mut(), buf.as_mut_ptr().cast());
             panic!(
                 "{}",
                 str::from_utf8(&buf).ok().expect("InfoLog not valid utf8")
@@ -106,7 +106,7 @@ pub fn main() {
     let _ctx = window.gl_create_context().unwrap();
     // bye bye vsync
     video_subsystem.gl_set_swap_interval(0).unwrap();
-    gl::load_with(|name| video_subsystem.gl_get_proc_address(name) as *const _);
+    gl::load_with(|name| video_subsystem.gl_get_proc_address(name).cast());
 
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mod_ctrl: Mod = Mod::LCTRLMOD | Mod::RCTRLMOD;
@@ -157,9 +157,9 @@ pub fn main() {
     let mut last_recorded_frame = 0;
     let mut scale_animation = TimeInterpolator {
         start,
-        start_value: last_camera_scale as f32,
+        start_value: last_camera_scale,
         duration: SCALE_ANIM_TIME,
-        end_value: last_camera_scale as f32,
+        end_value: last_camera_scale,
     };
 
     let mut last_center_y = CENTER_OFFSET;
@@ -249,7 +249,7 @@ pub fn main() {
         // fps tracking
         if start.elapsed().as_secs_f32() >= 0.5 {
             let elapsed_frames = frame_counter - last_recorded_frame;
-            let fps = elapsed_frames as f64 / start.elapsed().as_secs_f64();
+            let fps = elapsed_frames as f32 / start.elapsed().as_secs_f32();
             window
                 .set_title(&format!("Saphedit, fps={fps:.0}"))
                 .expect("String has no null bytes");
@@ -268,15 +268,15 @@ pub fn main() {
         // Update text size / update scale
         if state.text || state.resize {
             let (text_w, text_h) = atlas.measure_dims(text_buffer.chars());
-            let scale_x = new_screen_size.0 as f64 / (text_w + 2. * MARGIN);
-            let scale_y = new_screen_size.1 as f64 / text_h;
+            let scale_x = new_screen_size.0 as f32 / (text_w + 2. * MARGIN);
+            let scale_y = new_screen_size.1 as f32 / text_h;
             // TODO: do a better estimate of the size; the issue here is that
             // the theoretical scale depends on the text size, which can change
             // from one scale to another
-            let new_scale_raw = scale_x.min(scale_y).max(8.).min(MAX_SCALE.into());
-            let new_scale_rounded = (new_scale_raw / GlyphAtlas::SCALE_STEP as f64).floor()
-                * GlyphAtlas::SCALE_STEP as f64;
-            scale_animation.reset(new_scale_rounded as f32);
+            let new_scale_raw = scale_x.min(scale_y).max(8.).min(MAX_SCALE);
+            let new_scale_rounded =
+                (new_scale_raw / GlyphAtlas::SCALE_STEP).floor() * GlyphAtlas::SCALE_STEP;
+            scale_animation.reset(new_scale_rounded);
         }
 
         let camera_scale = scale_animation.interpolated_value();
@@ -293,7 +293,8 @@ pub fn main() {
 
         // Scroll update
         if state.scroll {
-            let y_center_new_target = cursor_row as f32 * atlas.line_height() as f32 + CENTER_OFFSET;
+            let y_center_new_target =
+                cursor_row as f32 * atlas.line_height() as f32 + CENTER_OFFSET;
             scroll_animation.reset(y_center_new_target);
         }
         let y_center_new = scroll_animation.interpolated_value();
@@ -326,7 +327,7 @@ pub fn main() {
             let cursor_coords = render_text(
                 &text_buffer,
                 &mut atlas,
-                MARGIN as f64,
+                MARGIN,
                 0.,
                 cursor_row,
                 cursor_col,
@@ -368,9 +369,7 @@ fn check_err() {
         })
         .collect();
 
-    if !errors.is_empty() {
-        panic!("Error(s) occurred: {:?}", errors)
-    }
+    assert!(errors.is_empty(), "Error(s) occurred: {:?}", errors);
 }
 
 struct TimeInterpolator {
@@ -385,7 +384,7 @@ impl TimeInterpolator {
         let elapsed_s = self.start.elapsed().as_secs_f32();
         let percent_elapsed = elapsed_s / self.duration.as_secs_f32();
         if percent_elapsed <= 1. {
-            (self.end_value - self.start_value) * percent_elapsed + self.start_value
+            (self.end_value - self.start_value).mul_add(percent_elapsed, self.start_value)
         } else {
             self.end_value
         }
@@ -400,16 +399,15 @@ impl TimeInterpolator {
 
 fn render_cursor(
     shape_shader: &Shader<6>,
-    cursor_coords: (f64, f64),
-    ascender: f64,
-    descender: f64,
+    cursor_coords: (f32, f32),
+    ascender: f32,
+    descender: f32,
     cursor_visible: bool,
 ) {
-    let x = cursor_coords.0 as f32;
-    let y = cursor_coords.1 as f32;
-    let asc = ascender as f32;
-    let dsc = descender as f32;
-    let alpha = 0.25 + cursor_visible as u8 as f32 * 0.5;
+    let (x, y) = cursor_coords;
+    let asc = ascender;
+    let dsc = descender;
+    let alpha = 0.25 + f32::from(u8::from(cursor_visible)) * 0.5;
     let x1 = x;
     let x2 = x1 + INSERT_CURSOR_WIDTH;
     let vertices = [
@@ -429,19 +427,20 @@ fn render_cursor(
 fn render_text(
     text: &str,
     atlas: &mut GlyphAtlas,
-    x_start: f64,
-    y_start: f64,
+    x_start: f32,
+    y_start: f32,
     cursor_row: usize,
     cursor_col: usize,
     text_shader: &Shader<4>,
-) -> (f64, f64) {
+) -> (f32, f32) {
     let line_height = atlas.line_height();
 
     atlas.add_characters(text.chars());
     let mut y0 = y_start;
     let mut cursor_coords = (x_start, y_start);
 
-    let mut vertices_full = vec![];
+    // Pre-allocate 4 vertices per character. Possibly inexact, but good enough
+    let mut vertices_full = Vec::with_capacity(text.len() * 4);
     for (row_idx, line) in text.split('\n').enumerate() {
         let mut x0 = x_start;
         for (col_idx, c) in line.chars().enumerate() {
@@ -589,11 +588,9 @@ impl<const N: usize> Shader<N> {
         {
             let name = c_str(attr_name);
             let attr_location = gl::GetAttribLocation(program_id, name.as_ptr());
-            if attr_location < 0 {
-                panic!("Couldn't find attribute {attr_name}");
-            }
+            assert!(attr_location >= 0, "Couldn't find attribute {attr_name}");
 
-            let attr_location = attr_location as u32;
+            let attr_location = attr_location.try_into().unwrap();
             let pointer = ptr::null::<GLfloat>().wrapping_add(offset);
 
             gl::VertexAttribPointer(
@@ -602,7 +599,7 @@ impl<const N: usize> Shader<N> {
                 gl::FLOAT,
                 gl::FALSE,
                 stride as i32,
-                pointer as _,
+                pointer.cast(),
             );
 
             check_err();
@@ -626,13 +623,15 @@ impl<const N: usize> Shader<N> {
     /// * bottom left
     /// * top left
     fn upload_rectangles(&self, data: &[[[f32; N]; 4]]) {
-        if data.len() == 0 {
+        if data.is_empty() {
             return;
         }
 
         let indices = (0..data.len())
             .flat_map(|n| {
                 let offset = n as GLuint * 4;
+
+                #[allow(clippy::identity_op)] // helps readability
                 [
                     [offset + 1, offset + 2, offset + 3],
                     [offset + 0, offset + 1, offset + 3],
@@ -646,7 +645,7 @@ impl<const N: usize> Shader<N> {
             gl::BufferData(
                 gl::ELEMENT_ARRAY_BUFFER,
                 elem_array_size as isize,
-                indices.as_ptr() as _,
+                indices.as_ptr().cast(),
                 gl::DYNAMIC_DRAW,
             );
 
@@ -655,7 +654,7 @@ impl<const N: usize> Shader<N> {
             gl::BufferData(
                 gl::ARRAY_BUFFER,
                 size_of_val(data) as isize,
-                data.as_ptr() as _,
+                data.as_ptr().cast(),
                 gl::DYNAMIC_DRAW,
             );
         }
@@ -699,16 +698,16 @@ impl<const N: usize> Shader<N> {
                 gl::GetUniformLocation(self.program_id, name.as_ptr()),
                 val[0],
                 val[1],
-            )
+            );
         }
     }
 }
 
 impl Shader<4> {
-    fn text_shader(vbo: GLuint) -> Shader<4> {
+    fn text_shader(vbo: GLuint) -> Self {
         unsafe {
             // Safety: the sizes in TEXT_SHADER_ATTR_INFO sum up to 4
-            Shader::new(
+            Self::new(
                 vbo,
                 include_str!("shaders/text_vertex.glsl"),
                 include_str!("shaders/text_fragment.glsl"),
@@ -721,7 +720,7 @@ impl Shader<4> {
 impl Shader<6> {
     fn shape_shader(vbo: GLuint) -> Self {
         unsafe {
-            Shader::new(
+            Self::new(
                 vbo,
                 include_str!("shaders/shape_vertex.glsl"),
                 include_str!("shaders/shape_fragment.glsl"),

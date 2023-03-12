@@ -2,7 +2,7 @@
 use std::rc::Rc;
 
 /// Determines the minimum leaf length when concatenating. I.e., any string with
-/// fewer than MIN_LEAF_LENGTH graphemes is considered "short"
+/// fewer than `MIN_LEAF_LENGTH` graphemes is considered "short"
 const MIN_LEAF_LENGTH: u32 = 4096;
 
 enum Rope {
