@@ -260,15 +260,18 @@ pub fn main() {
         state.resize = new_screen_size != screen_size;
         screen_size = new_screen_size;
 
-        // Update text size
+        // Update text size / update scale
         if state.text || state.resize {
             let (text_w, text_h) = atlas.measure_dims(text_buffer.chars());
             let scale_x = new_screen_size.0 as f64 / (text_w + 2. * MARGIN);
             let scale_y = new_screen_size.1 as f64 / text_h;
-            // Empirical maximum size. It should be possible to get an actual maximum size
-            // (TODO)
-            let new_scale = scale_x.min(scale_y).max(8.).min(MAX_SCALE.into());
-            scale_animation.reset(new_scale as f32);
+            // TODO: do a better estimate of the size; the issue here is that
+            // the theoretical scale depends on the text size, which can change
+            // from one scale to another
+            let new_scale_raw = scale_x.min(scale_y).max(8.).min(MAX_SCALE.into());
+            let new_scale_rounded = (new_scale_raw / GlyphAtlas::SCALE_STEP as f64).floor()
+                * GlyphAtlas::SCALE_STEP as f64;
+            scale_animation.reset(new_scale_rounded as f32);
         }
 
         let camera_scale = scale_animation.interpolated_value();
@@ -454,7 +457,12 @@ fn render_text(
     text_shader.upload_rectangles(&vertices_full);
     check_err();
     unsafe {
-        gl::DrawElements(gl::TRIANGLES, (vertices_full.len() * 6) as i32, gl::UNSIGNED_INT, ptr::null());
+        gl::DrawElements(
+            gl::TRIANGLES,
+            (vertices_full.len() * 6) as i32,
+            gl::UNSIGNED_INT,
+            ptr::null(),
+        );
     }
     check_err();
     cursor_coords
