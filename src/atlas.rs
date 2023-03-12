@@ -35,7 +35,7 @@ pub struct GlyphAtlas {
 }
 
 impl GlyphAtlas {
-    pub const SCALE_STEP: f32 = 0.25;
+    pub const SCALE_STEP: f32 = 1. / 32.;
     pub const MIN_SCALE: u32 = (4. / Self::SCALE_STEP) as u32;
     fn get_current(&self) -> impl Deref<Target = GlyphMap> + '_ {
         self.sizes
@@ -113,8 +113,12 @@ impl GlyphAtlas {
         self.get_current().line_height
     }
 
-    pub fn measure_dims(&mut self, chars: impl Iterator<Item = char>) -> (f32, f32) {
-        self.get_current().measure_dims(chars)
+    pub fn measure_dims(&self, chars: impl Iterator<Item = char>) -> (f32, f32) {
+        // Call to make sure at least one value is in the map
+        self.get_current();
+        let maps = self.sizes.borrow();
+        let biggest = maps.last_key_value().expect("At least one entry was just inserted").1;
+        biggest.measure_dims(chars)
     }
 
     pub fn get_glyph_data(&mut self, c: char, x0: f32, y0: f32) -> ([[GLfloat; 4]; 4], f32, f32) {

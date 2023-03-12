@@ -23,7 +23,7 @@ const MAX_SCALE: f32 = 64.;
 const REDRAW_EVERY: u64 = 1 << 20;
 const BLINK_TIME: Duration = Duration::from_millis(500);
 const MARGIN: f32 = 1.5;
-const SCALE_ANIM_TIME: Duration = Duration::from_millis(200);
+const SCALE_ANIM_TIME: Duration = Duration::from_millis(100);
 const SCROLL_ANIM_TIME: Duration = Duration::from_millis(100);
 const CENTER_OFFSET: f32 = -0.5;
 
@@ -274,8 +274,8 @@ pub fn main() {
             // the theoretical scale depends on the text size, which can change
             // from one scale to another
             let new_scale_raw = scale_x.min(scale_y).max(8.).min(MAX_SCALE);
-            let new_scale_rounded =
-                (new_scale_raw / GlyphAtlas::SCALE_STEP).floor() * GlyphAtlas::SCALE_STEP;
+            let step = GlyphAtlas::SCALE_STEP;
+            let new_scale_rounded = (new_scale_raw / step).floor() * step;
             scale_animation.reset(new_scale_rounded);
         }
 
