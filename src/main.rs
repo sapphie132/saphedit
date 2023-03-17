@@ -273,7 +273,7 @@ pub fn main() {
             // TODO: do a better estimate of the size; the issue here is that
             // the theoretical scale depends on the text size, which can change
             // from one scale to another
-            let new_scale_raw = scale_x.min(scale_y).max(8.).min(MAX_SCALE);
+            let new_scale_raw = scale_x.min(scale_y).clamp(8., MAX_SCALE);
             let step = GlyphAtlas::SCALE_STEP;
             let new_scale_rounded = (new_scale_raw / step).floor() * step;
             scale_animation.reset(new_scale_rounded);
@@ -294,7 +294,7 @@ pub fn main() {
         // Scroll update
         if state.scroll {
             let y_center_new_target =
-                cursor_row as f32 * atlas.line_height() as f32 + CENTER_OFFSET;
+                cursor_row as f32 * atlas.line_height() + CENTER_OFFSET;
             scroll_animation.reset(y_center_new_target);
         }
         let y_center_new = scroll_animation.interpolated_value();

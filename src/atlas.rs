@@ -168,7 +168,7 @@ impl GlyphMap {
         let metrics = rasteriser.metrics(font_key, Size::new(1.))?;
 
         let line_height = metrics.line_height as f32 * scale;
-        let descender = metrics.descent as f32 * scale;
+        let descender = metrics.descent * scale;
         let mut res = Self {
             scale,
             pixel_buffer,
