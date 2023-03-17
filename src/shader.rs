@@ -1,6 +1,6 @@
-use std::{ffi::CString, ptr, mem, str};
+use std::{ffi::CString, mem, ptr, str};
 
-use gl::types::{GLuint, GLenum, GLint, GLfloat};
+use gl::types::{GLenum, GLfloat, GLint, GLuint};
 
 use crate::check_err;
 
