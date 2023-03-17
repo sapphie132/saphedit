@@ -2,12 +2,13 @@ extern crate sdl2;
 
 use atlas::GlyphAtlas;
 use gl::types::GLfloat;
+use sdl2::clipboard::ClipboardUtil;
 use sdl2::event::Event;
 use sdl2::keyboard::{Keycode, Mod, Scancode};
+use sdl2::EventPump;
 use shader::Shader;
 
 use std::mem::{self, size_of};
-use std::str;
 use std::time::{Duration, Instant};
 use std::{iter, ptr};
 
@@ -63,7 +64,6 @@ pub fn main() {
     gl::load_with(|name| video_subsystem.gl_get_proc_address(name).cast());
 
     let mut event_pump = sdl_context.event_pump().unwrap();
-    let mod_ctrl: Mod = Mod::LCTRLMOD | Mod::RCTRLMOD;
     // TODO: clear up usage of this timer. Can probably be replaced with
     // run_timer
     let mut start = Instant::now();
@@ -86,7 +86,6 @@ pub fn main() {
 
     let mut screen_size = window.drawable_size();
     // Buffer for the text edited on screen. Lines are \n terminated
-    let mut text_buffer = String::new();
     let mut last_camera_scale = MAX_SCALE;
     let mut atlas = GlyphAtlas::new(&text_shader);
     let mut last_recorded_frame = 0;
@@ -105,82 +104,18 @@ pub fn main() {
         duration: SCROLL_ANIM_TIME,
     };
 
-    let mut _line_count = 0;
-    let mut cursor_row = 0;
-    let mut cursor_col = 0;
-
     let mut last_cursor_visible = false;
     let run_timer = Instant::now();
 
-    'running: for frame_counter in 0.. {
-        let mut state = UpdateState::new();
-        let kbs = event_pump.keyboard_state();
-        let ctrl_pressed =
-            kbs.is_scancode_pressed(Scancode::LCtrl) | kbs.is_scancode_pressed(Scancode::RCtrl);
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => break 'running,
-                Event::KeyDown {
-                    keycode: Some(Keycode::Backspace),
-                    ..
-                } => {
-                    let removed_char = text_buffer.pop();
-                    if removed_char.is_some() {
-                        state.text = true;
-                        cursor_col -= 1;
-                    }
-                    if removed_char == (Some('\n')) {
-                        _line_count -= 1;
-                        // TODO: handle col
-                        cursor_row -= 1;
-                        state.scroll = true;
-                    }
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::C),
-                    keymod,
-                    ..
-                } if keymod.intersects(mod_ctrl) => {
-                    log_err!(clipboard.set_clipboard_text(&text_buffer));
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::V),
-                    keymod,
-                    ..
-                } if keymod.intersects(mod_ctrl) => match clipboard.clipboard_text() {
-                    Ok(t) => {
-                        text_buffer += &t;
-                        cursor_col += t.len();
-                        state.text = true;
-                    }
-                    Err(e) => eprintln!("{}", e),
-                },
-                Event::KeyDown {
-                    keycode: Some(Keycode::Return),
-                    ..
-                } => {
-                    text_buffer.push('\n');
-                    state.text = true;
-                    _line_count += 1;
-                    cursor_col = 0;
-                    cursor_row += 1;
-                    state.scroll = true;
-                }
-                Event::TextInput { text, .. } if !ctrl_pressed => {
-                    // TODO: ensure there are no \r characters whenever we
-                    // are inserting text. Also, DRY this up.
-                    text_buffer += &text;
-                    cursor_col += text.len();
-                    state.text = true;
-                }
-                _ => {}
-            }
-        }
+    let mut state = State {
+        exit: false,
+        text_buffer: String::new(),
+        cursor_col: 0,
+        cursor_row: 0,
+        line_count: 0,
+    };
 
+    'running: for frame_counter in 0.. {
         // fps tracking
         if start.elapsed().as_secs_f32() >= 0.5 {
             let elapsed_frames = frame_counter - last_recorded_frame;
@@ -192,17 +127,24 @@ pub fn main() {
             start = Instant::now();
         }
 
+        let mut update_state = handle_events(&mut event_pump, &mut state, &clipboard);
+
+        if state.exit {
+            break 'running;
+        }
+
         // Timed redraw
-        state.timed = frame_counter % REDRAW_EVERY == 0;
+        update_state.timed = frame_counter % REDRAW_EVERY == 0;
 
         // Update screen size
         let new_screen_size = window.drawable_size();
-        state.resize = new_screen_size != screen_size;
+        update_state.resize = new_screen_size != screen_size;
         screen_size = new_screen_size;
 
         // Update text size / update scale
-        if state.text || state.resize {
-            let (text_w, text_h) = text_buffer
+        if update_state.text || update_state.resize {
+            let (text_w, text_h) = state
+                .text_buffer
                 .split('\n')
                 .map(|line| atlas.measure_dims(line.chars()))
                 .reduce(|(w1, h1), (w2, h2)| (w1.max(w2), h1.max(h2)))
@@ -219,7 +161,7 @@ pub fn main() {
         }
 
         let camera_scale = scale_animation.interpolated_value();
-        state.rescale |= camera_scale != last_camera_scale;
+        update_state.rescale |= camera_scale != last_camera_scale;
         last_camera_scale = camera_scale;
 
         atlas.select_scale(camera_scale);
@@ -227,23 +169,23 @@ pub fn main() {
         // Cursor update
         let time_period = (run_timer.elapsed().as_secs_f32() / BLINK_TIME.as_secs_f32()) as u32;
         let cursor_visible = time_period % 2 == 0;
-        state.blink_change = cursor_visible ^ last_cursor_visible;
+        update_state.blink_change = cursor_visible ^ last_cursor_visible;
         last_cursor_visible = cursor_visible;
 
         // Scroll update
-        if state.scroll {
-            let y_center_new_target = cursor_row as f32 * atlas.line_height() + CENTER_OFFSET;
+        if update_state.scroll {
+            let y_center_new_target = state.cursor_row as f32 * atlas.line_height() + CENTER_OFFSET;
             scroll_animation.reset(y_center_new_target);
         }
         let y_center_new = scroll_animation.interpolated_value();
-        state.animating |= y_center_new != last_center_y;
+        update_state.animating |= y_center_new != last_center_y;
         last_center_y = y_center_new;
 
         // Dear Princess Celestia
         // I fucking hate indentation
         // Your faithful student
         // Twinkle Springle
-        if !state.needs_redraw() {
+        if !update_state.needs_redraw() {
             continue;
         }
 
@@ -262,15 +204,7 @@ pub fn main() {
             text_shader.uniform1f("yCenter", last_center_y);
 
             // Rendering logic put into separate functions to alleviate nesting
-            let cursor_coords = render_text(
-                &text_buffer,
-                &mut atlas,
-                MARGIN,
-                0.,
-                cursor_row,
-                cursor_col,
-                &text_shader,
-            );
+            let cursor_coords = render_text(&state, &mut atlas, MARGIN, 0., &text_shader);
 
             shape_shader.r#use();
             shape_shader.uniform1f("scale", camera_scale);
@@ -293,6 +227,81 @@ pub fn main() {
     }
 }
 
+fn handle_events(
+    event_pump: &mut EventPump,
+    state: &mut State,
+    clipboard: &ClipboardUtil,
+) -> UpdateState {
+    let mut update_state = UpdateState::new();
+    let kbs = event_pump.keyboard_state();
+    let ctrl_pressed =
+        kbs.is_scancode_pressed(Scancode::LCtrl) | kbs.is_scancode_pressed(Scancode::RCtrl);
+    let mod_ctrl: Mod = Mod::LCTRLMOD | Mod::RCTRLMOD;
+    for event in event_pump.poll_iter() {
+        match event {
+            Event::Quit { .. }
+            | Event::KeyDown {
+                keycode: Some(Keycode::Escape),
+                ..
+            } => state.exit = true,
+            Event::KeyDown {
+                keycode: Some(Keycode::Backspace),
+                ..
+            } => {
+                let removed_char = state.text_buffer.pop();
+                if removed_char.is_some() {
+                    update_state.text = true;
+                    state.cursor_col -= 1;
+                }
+                if removed_char == (Some('\n')) {
+                    state.line_count -= 1;
+                    // TODO: handle col
+                    state.cursor_row -= 1;
+                    update_state.scroll = true;
+                }
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::C),
+                keymod,
+                ..
+            } if keymod.intersects(mod_ctrl) => {
+                log_err!(clipboard.set_clipboard_text(&state.text_buffer));
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::V),
+                keymod,
+                ..
+            } if keymod.intersects(mod_ctrl) => match clipboard.clipboard_text() {
+                Ok(t) => {
+                    state.text_buffer.push_str(&t);
+                    state.cursor_col += t.len();
+                    update_state.text = true;
+                }
+                Err(e) => eprintln!("{}", e),
+            },
+            Event::KeyDown {
+                keycode: Some(Keycode::Return),
+                ..
+            } => {
+                state.text_buffer.push('\n');
+                update_state.text = true;
+                state.line_count += 1;
+                state.cursor_col = 0;
+                state.cursor_row += 1;
+                update_state.scroll = true;
+            }
+            Event::TextInput { text, .. } if !ctrl_pressed => {
+                // TODO: ensure there are no \r characters whenever we
+                // are inserting text. Also, DRY this up.
+                state.text_buffer.push_str(&text);
+                state.cursor_col += text.len();
+                update_state.text = true;
+            }
+            _ => {}
+        }
+    }
+    update_state
+}
 #[inline]
 // TODO: switch to the callback based system
 fn check_err() {
@@ -308,6 +317,14 @@ fn check_err() {
         .collect();
 
     assert!(errors.is_empty(), "Error(s) occurred: {:?}", errors);
+}
+
+struct State {
+    exit: bool,
+    text_buffer: String,
+    line_count: usize,
+    cursor_col: usize,
+    cursor_row: usize,
 }
 
 struct TimeInterpolator {
@@ -363,15 +380,14 @@ fn render_cursor(
 // to predict how wide some text will be)
 // also I really need to document this kek
 fn render_text(
-    text: &str,
+    state: &State,
     atlas: &mut GlyphAtlas,
     x_start: f32,
     y_start: f32,
-    cursor_row: usize,
-    cursor_col: usize,
     text_shader: &Shader<4>,
 ) -> (f32, f32) {
     let line_height = atlas.line_height();
+    let text = &state.text_buffer;
 
     atlas.add_characters(text.chars());
     let mut y0 = y_start;
@@ -387,12 +403,12 @@ fn render_text(
 
             x0 += ax;
             y0 += ay;
-            if col_idx + 1 == cursor_col {
+            if col_idx + 1 == state.cursor_col {
                 cursor_coords.0 = x0;
             }
         }
 
-        if row_idx == cursor_row {
+        if row_idx == state.cursor_row {
             cursor_coords.1 = y0;
         }
         y0 += line_height;
