@@ -1,7 +1,6 @@
 extern crate sdl2;
 
 use atlas::GlyphAtlas;
-use crossfont::{FontDesc, Rasterize, Rasterizer, Size, Slant, Style, Weight};
 use gl::types::GLfloat;
 use sdl2::event::Event;
 use sdl2::keyboard::{Keycode, Mod, Scancode};
@@ -16,6 +15,7 @@ use std::{iter, ptr};
    To do eventually
    - Normal mode
    - Commands
+   - Reset cursor timer on every keystroke
    - Add font picker
    - Figure out why ugly
 */
@@ -43,18 +43,6 @@ macro_rules! log_err {
 }
 
 pub fn main() {
-    let font_desc = FontDesc::new(
-        "vera",
-        Style::Description {
-            slant: Slant::Normal,
-            weight: Weight::Normal,
-        },
-    );
-    let mut rast = Rasterizer::new(1.).expect("Could not set up rasterizer");
-    let font_key = rast
-        .load_font(&font_desc, Size::new(0.))
-        .expect("Could not load font");
-
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     video_subsystem.text_input().start();
@@ -94,32 +82,13 @@ pub fn main() {
     };
 
     let text_shader = Shader::text_shader(vbo);
-    // TODO: currently bugged. Probably need to disable the attribs before
-    // enabling the others
     let shape_shader = Shader::shape_shader(vbo);
-
-    // setup glyph atlas TODO: move this into new
-    let mut texture1 = 0;
-    unsafe {
-        text_shader.r#use();
-        gl::GenTextures(1, &mut texture1);
-        gl::BindTexture(gl::TEXTURE_2D, texture1);
-
-        // wrapping params
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
-        // filtering params
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
-
-        text_shader.uniform1i("texture1", 0);
-    }
 
     let mut screen_size = window.drawable_size();
     // Buffer for the text edited on screen. Lines are \n terminated
     let mut text_buffer = String::new();
     let mut last_camera_scale = MAX_SCALE;
-    let mut atlas = GlyphAtlas::new(rast, font_key, texture1);
+    let mut atlas = GlyphAtlas::new(&text_shader);
     let mut last_recorded_frame = 0;
     let mut scale_animation = TimeInterpolator {
         start,

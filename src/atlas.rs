@@ -7,8 +7,11 @@ use std::{
 };
 
 use crossfont::{
-    BitmapBuffer, Error, FontKey, GlyphKey, Rasterize, RasterizedGlyph, Rasterizer, Size,
+    BitmapBuffer, Error, FontDesc, FontKey, GlyphKey, Rasterize, RasterizedGlyph, Rasterizer, Size,
+    Slant, Style, Weight,
 };
+
+use crate::shader::Shader;
 
 #[derive(Clone, Copy)]
 struct Rgba([u8; 4]);
@@ -79,7 +82,33 @@ impl GlyphAtlas {
         })
     }
 
-    pub fn new(rasteriser: Rasterizer, font_key: FontKey, texture1: GLuint) -> Self {
+    pub fn new(text_shader: &Shader<4>) -> Self {
+        let mut texture1 = 0;
+        unsafe {
+            text_shader.r#use();
+            gl::GenTextures(1, &mut texture1);
+            gl::BindTexture(gl::TEXTURE_2D, texture1);
+
+            // wrapping params
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+            // filtering params
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+
+            text_shader.uniform1i("texture1", 0);
+        }
+        let mut rasteriser = Rasterizer::new(1.).expect("Could not set up rasterizer");
+        let font_desc = FontDesc::new(
+            "vera",
+            Style::Description {
+                slant: Slant::Normal,
+                weight: Weight::Normal,
+            },
+        );
+        let font_key = rasteriser
+            .load_font(&font_desc, Size::new(0.))
+            .expect("Could not load font");
         Self {
             sizes: RefCell::new(BTreeMap::new()),
             rasteriser: RefCell::new(rasteriser),
@@ -117,7 +146,10 @@ impl GlyphAtlas {
         // Call to make sure at least one value is in the map
         self.get_current();
         let maps = self.sizes.borrow();
-        let biggest = maps.last_key_value().expect("At least one entry was just inserted").1;
+        let biggest = maps
+            .last_key_value()
+            .expect("At least one entry was just inserted")
+            .1;
         biggest.measure_dims(chars)
     }
 
