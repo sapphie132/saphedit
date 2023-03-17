@@ -14,8 +14,10 @@ use std::{iter, ptr};
 
 /*  To Do
    To do eventually
-   - Change font rendering
+   - Normal mode
+   - Commands
    - Add font picker
+   - Figure out why ugly
 */
 
 const INSERT_CURSOR_WIDTH: f32 = 0.25;
@@ -267,7 +269,11 @@ pub fn main() {
 
         // Update text size / update scale
         if state.text || state.resize {
-            let (text_w, text_h) = atlas.measure_dims(text_buffer.chars());
+            let (text_w, text_h) = text_buffer
+                .split('\n')
+                .map(|line| atlas.measure_dims(line.chars()))
+                .reduce(|(w1, h1), (w2, h2)| (w1.max(w2), h1.max(h2)))
+                .unwrap_or((1., 1.));
             let scale_x = new_screen_size.0 as f32 / (text_w + 2. * MARGIN);
             let scale_y = new_screen_size.1 as f32 / text_h;
             // TODO: do a better estimate of the size; the issue here is that
@@ -293,8 +299,7 @@ pub fn main() {
 
         // Scroll update
         if state.scroll {
-            let y_center_new_target =
-                cursor_row as f32 * atlas.line_height() + CENTER_OFFSET;
+            let y_center_new_target = cursor_row as f32 * atlas.line_height() + CENTER_OFFSET;
             scroll_animation.reset(y_center_new_target);
         }
         let y_center_new = scroll_animation.interpolated_value();
