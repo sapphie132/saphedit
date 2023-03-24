@@ -24,7 +24,7 @@ use std::{iter, ptr};
 const INSERT_CURSOR_WIDTH: f32 = 0.25;
 const MAX_SCALE: f32 = 64.;
 const BLINK_TIME: Duration = Duration::from_millis(500);
-const MARGIN: f32 = 1.;
+const MARGIN: f32 = 2.;
 const SCALE_ANIM_TIME: Duration = Duration::from_millis(100);
 const SCROLL_ANIM_TIME: Duration = Duration::from_millis(100);
 const CENTER_OFFSET: f32 = -0.5;
@@ -40,6 +40,11 @@ macro_rules! log_err {
             eprintln!("{}", e);
         }
     };
+}
+
+fn round_to_scale(value: f32, scale: f32) -> f32 {
+    const C: f32 = 1.;
+    (value * C * scale).round() / (C * scale)
 }
 
 pub fn main() {
@@ -133,7 +138,6 @@ pub fn main() {
         let resize = new_screen_size != screen_size;
         screen_size = new_screen_size;
 
-
         // Update text size / update scale
         if logic_state_updated || resize {
             let (text_w, text_h) = logic_state
@@ -168,7 +172,8 @@ pub fn main() {
             scroll_animation.reset(y_center_new_target);
         }
 
-        let center_y = scroll_animation.interpolated_value();
+        let center_y_raw = scroll_animation.interpolated_value();
+        let center_y = round_to_scale(center_y_raw, camera_scale);
 
         let new_gfx_state = GraphicsState {
             camera_scale,
@@ -202,7 +207,8 @@ pub fn main() {
             text_shader.uniform1f("yCenter", gfx_state.center_y);
 
             // Rendering logic put into separate functions to alleviate nesting
-            let cursor_coords = render_text(&logic_state, &mut atlas, MARGIN, 0., &text_shader);
+            let x_start = round_to_scale(MARGIN, camera_scale);
+            let cursor_coords = render_text(&logic_state, &mut atlas, x_start, 0., &text_shader);
 
             shape_shader.r#use();
             shape_shader.uniform1f("scale", camera_scale);
