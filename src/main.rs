@@ -226,6 +226,11 @@ pub fn main() {
                 cursor_visible,
                 &logic_state,
             );
+
+            shape_shader.r#use();
+            shape_shader.uniform1f("scale", 1.);
+            shape_shader.uniform1f("yCenter", 0.);
+            render_footer(&shape_shader, &text_shader, (width, height));
         }
         window.gl_swap_window();
     }
@@ -502,6 +507,24 @@ impl TimeInterpolator {
         self.end_value = new_value;
         self.start = Instant::now();
     }
+}
+
+fn render_footer(shape_shader: &Shader<6>, text_shader: &Shader<4>, drawable_size: (u32, u32)) {
+    let (w, h) = drawable_size;
+    let x1 = 0.;
+    let x2 = w as f32;
+    let footer_height = 20.;
+    let y2 = h as f32 / 2.;
+    let y1 = y2 - footer_height;
+    let background_vertices = [
+        [x2, y1, 1., 1., 1., 1.],
+        [x2, y2, 1., 1., 1., 1.],
+        [x1, y2, 1., 1., 1., 1.],
+        [x1, y1, 1., 1., 1., 1.],
+    ];
+
+    shape_shader.upload_rectangles(&[background_vertices]);
+    unsafe { gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null()) }
 }
 
 fn render_cursor(
