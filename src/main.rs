@@ -96,6 +96,7 @@ pub fn main() {
         cursor_col: 0,
         cursor_row: 0,
         line_count: 0,
+        mode: EditorMode::Normal,
     };
 
     let mut gfx_state = GraphicsState {
@@ -121,7 +122,10 @@ pub fn main() {
             frame_timer = Instant::now();
         }
 
-        let new_state = handle_events(&mut event_pump, &logic_state, &clipboard);
+        let new_state = match logic_state.mode {
+            EditorMode::Insert => handle_events_insert(&mut event_pump, &logic_state, &clipboard),
+            EditorMode::Normal => handle_events_normal(&mut event_pump, &logic_state),
+        };
 
         if new_state.exit {
             break 'running;
@@ -231,7 +235,25 @@ pub fn main() {
     }
 }
 
-fn handle_events(
+fn handle_events_normal(event_pump: &mut EventPump, old_state: &LogicState) -> LogicState {
+    use Event::*;
+    use Keycode::*;
+    let mut state = old_state.clone();
+    for event in event_pump.poll_iter() {
+        match event {
+            Quit { .. } => state.exit = true,
+            KeyDown {
+                keycode: Some(I), ..
+            } => {
+                state.mode = EditorMode::Insert;
+            }
+            _ => {}
+        }
+    }
+    state
+}
+
+fn handle_events_insert(
     event_pump: &mut EventPump,
     old_state: &LogicState,
     clipboard: &ClipboardUtil,
@@ -242,11 +264,11 @@ fn handle_events(
     let mod_ctrl: Mod = Mod::LCTRLMOD | Mod::RCTRLMOD;
     for event in event_pump.poll_iter() {
         match event {
-            Quit { .. }
-            | KeyDown {
+            Quit { .. } => state.exit = true,
+            KeyDown {
                 keycode: Some(Escape),
                 ..
-            } => state.exit = true,
+            } => state.mode = EditorMode::Normal,
             KeyDown {
                 keycode: Some(Left),
                 ..
@@ -371,6 +393,13 @@ struct LogicState {
     line_count: usize,
     cursor_col: usize,
     cursor_row: usize,
+    mode: EditorMode,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum EditorMode {
+    Insert,
+    Normal,
 }
 
 struct TimeInterpolator {
