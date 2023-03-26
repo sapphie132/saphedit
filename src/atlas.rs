@@ -169,13 +169,15 @@ impl GlyphAtlas {
         unsafe { GlyphMap::upload_texture(&self.get_current(), self.texture1) };
     }
 
-    pub fn select_scale(&mut self, scale: f32, letter_size: u32) {
+    pub fn select_scale(&mut self, scale: f32, letter_size: u32) -> f32 {
         self.letter_size = letter_size;
         let scale_rounded = (letter_size as f32 * scale / Self::SCALE_STEP).round() as u32;
-        if self.current_scale != scale_rounded {
+        let prev_scale = self.current_scale;
+        if prev_scale != scale_rounded {
             self.current_scale = scale_rounded;
             unsafe { GlyphMap::upload_texture(&self.get_current(), self.texture1) };
         }
+        prev_scale as f32 * Self::SCALE_STEP
     }
 
     pub fn add_characters<I: Iterator<Item = char>>(&mut self, chars: I) {
@@ -204,7 +206,7 @@ impl GlyphAtlas {
             .1;
         let (w, h) = biggest.measure_dims(chars);
         let s = self.letter_size as f32;
-        (w * s, w * h)
+        (w * s, h * s)
     }
 
     pub fn get_glyph_data(&mut self, c: char, x0: f32, y0: f32) -> ([[GLfloat; 4]; 4], f32, f32) {

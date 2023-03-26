@@ -582,7 +582,7 @@ fn render_footer(
     let x1 = 0.;
     let x2 = w as f32;
     let letter_height = 10;
-    atlas.select_scale(1., letter_height);
+    let prev_scale = atlas.select_scale(1., letter_height);
     let footer_height = atlas.line_height();
     let y2 = h as f32 / 2.;
     let y1 = y2 - footer_height;
@@ -623,6 +623,8 @@ fn render_footer(
             );
         };
     }
+    // Restore previous scale. Yeah, I think I might wanna refactor that.
+    atlas.select_scale(prev_scale, 1);
 }
 
 fn render_cursor(
