@@ -62,7 +62,10 @@ pub struct GlyphAtlas {
     rasteriser: RefCell<Rasterizer>,
     font_key: FontKey,
     texture1: GLuint,
+    /// Determines the factor TODO: explain these better
     current_scale: u32,
+    /// Determines how big the letters will be on screen
+    letter_size: u32,
 }
 
 impl GlyphAtlas {
@@ -143,6 +146,7 @@ impl GlyphAtlas {
             font_key,
             texture1,
             current_scale: Self::MIN_SCALE,
+            letter_size: 2,
         }
     }
 
@@ -165,8 +169,9 @@ impl GlyphAtlas {
         unsafe { GlyphMap::upload_texture(&self.get_current(), self.texture1) };
     }
 
-    pub fn select_scale(&mut self, scale: f32) {
-        let scale_rounded = (scale / Self::SCALE_STEP).round() as u32;
+    pub fn select_scale(&mut self, scale: f32, letter_size: u32) {
+        self.letter_size = letter_size;
+        let scale_rounded = (letter_size as f32 * scale / Self::SCALE_STEP).round() as u32;
         if self.current_scale != scale_rounded {
             self.current_scale = scale_rounded;
             unsafe { GlyphMap::upload_texture(&self.get_current(), self.texture1) };
@@ -186,7 +191,7 @@ impl GlyphAtlas {
     }
 
     pub fn line_height(&mut self) -> f32 {
-        self.get_current().line_height
+        self.get_current().line_height * self.letter_size as f32
     }
 
     pub fn measure_dims(&self, chars: impl Iterator<Item = char>) -> (f32, f32) {
@@ -197,19 +202,22 @@ impl GlyphAtlas {
             .last_key_value()
             .expect("At least one entry was just inserted")
             .1;
-        biggest.measure_dims(chars)
+        let (w, h) = biggest.measure_dims(chars);
+        let s = self.letter_size as f32;
+        (w * s, w * h)
     }
 
     pub fn get_glyph_data(&mut self, c: char, x0: f32, y0: f32) -> ([[GLfloat; 4]; 4], f32, f32) {
-        self.get_current().get_glyph_data(c, x0, y0)
+        self.get_current()
+            .get_glyph_data(c, x0, y0, self.letter_size as f32)
     }
 
     pub fn ascender(&self) -> f32 {
-        self.get_current().ascender
+        self.get_current().ascender * self.letter_size as f32
     }
 
     pub fn descender(&self) -> f32 {
-        self.get_current().descender
+        self.get_current().descender * self.letter_size as f32
     }
 }
 
@@ -221,7 +229,7 @@ struct GlyphMap {
     font_key: FontKey,
     /// Position of the "unknown character" glyph
     unknown_position: AtlasIndex,
-    scale: f32,
+    camera_scale: f32,
     line_height: f32,
     ascender: f32,
     descender: f32,
@@ -249,7 +257,7 @@ impl GlyphMap {
         let line_height = metrics.line_height as f32 * scale;
         let descender = metrics.descent * scale;
         let mut res = Self {
-            scale,
+            camera_scale: scale,
             pixel_buffer,
             buffer_width,
             glyphs: HashMap::new(),
@@ -284,12 +292,15 @@ impl GlyphMap {
                 Ok(g) => g,
             };
 
-            let glyph_info =
-                push_pixels(glyph, &mut self.pixel_buffer, self.buffer_width, self.scale);
+            let glyph_info = push_pixels(
+                glyph,
+                &mut self.pixel_buffer,
+                self.buffer_width,
+                self.camera_scale,
+            );
             self.glyphs.insert(c, glyph_info);
         }
     }
-    // TODO: remove this function (and integrate it somewhere else)
     pub unsafe fn upload_texture(&self, texture1: GLuint) {
         gl::ActiveTexture(gl::TEXTURE0);
         gl::BindTexture(gl::TEXTURE_2D, texture1);
@@ -326,7 +337,13 @@ impl GlyphMap {
         (w, h + self.line_height)
     }
 
-    pub fn get_glyph_data(&self, c: char, x0: f32, y0: f32) -> ([[GLfloat; 4]; 4], f32, f32) {
+    pub fn get_glyph_data(
+        &self,
+        c: char,
+        x0: f32,
+        y0: f32,
+        letter_scale: f32,
+    ) -> ([[GLfloat; 4]; 4], f32, f32) {
         let pos = self.glyphs.get(&c).unwrap_or(&self.unknown_position);
 
         let top = pos.top;
@@ -334,19 +351,19 @@ impl GlyphMap {
         let width = pos.width;
         let height = pos.height;
 
-        let x1 = x0 + left;
-        let x2 = x1 + width;
+        let x1 = x0 + left * letter_scale;
+        let x2 = x1 + width * letter_scale;
 
-        let y1 = y0 - top;
-        let y2 = y1 + height;
+        let y1 = y0 - top * letter_scale;
+        let y2 = y1 + height * letter_scale;
 
         let num_lines = self.buffer_height() as f32;
         let t1 = pos.y_index as f32 / num_lines;
         // TODO: find a less awkward way to do this
-        let t2 = t1 + (height / self.scale) / num_lines;
+        let t2 = t1 + (height / self.camera_scale) / num_lines;
 
         let s1 = 0.;
-        let s2 = width / self.scale / self.buffer_width as f32;
+        let s2 = width / self.camera_scale / self.buffer_width as f32;
 
         let verts = [
             //positions      // texture coordinates
@@ -356,7 +373,7 @@ impl GlyphMap {
             [x1, y1, s1, t1], // top left
         ];
 
-        (verts, pos.ax, pos.ay)
+        (verts, pos.ax * letter_scale, pos.ay * letter_scale)
     }
 }
 

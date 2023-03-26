@@ -116,9 +116,10 @@ pub fn main() {
             frame_timer = Instant::now();
         }
 
-        let new_state = match logic_state.mode {
+        let new_state = match &logic_state.mode {
             EditorMode::Insert => handle_events_insert(&mut event_pump, &logic_state, &clipboard),
             EditorMode::Normal => handle_events_normal(&mut event_pump, &logic_state),
+            EditorMode::Command(_) => todo!(),
         };
 
         if new_state.exit {
@@ -163,7 +164,7 @@ pub fn main() {
 
         let camera_scale = scale_animation.interpolated_value();
 
-        atlas.select_scale(camera_scale);
+        atlas.select_scale(camera_scale, 1);
 
         // Cursor update
         let time_period = (run_timer.elapsed().as_secs_f32() / BLINK_TIME.as_secs_f32()) as u32;
@@ -227,10 +228,14 @@ pub fn main() {
                 &logic_state,
             );
 
-            shape_shader.r#use();
-            shape_shader.uniform1f("scale", 1.);
-            shape_shader.uniform1f("yCenter", 0.);
-            render_footer(&shape_shader, &text_shader, (width, height));
+            // let mock_mode = EditorMode::Command("hello".into());
+            render_footer(
+                &shape_shader,
+                &text_shader,
+                &mut atlas,
+                (width, height),
+                &logic_state,
+            );
         }
         window.gl_swap_window();
     }
@@ -473,6 +478,7 @@ struct LogicState<'a> {
 enum EditorMode {
     Insert,
     Normal,
+    Command(String),
 }
 
 struct TimeInterpolator {
@@ -509,22 +515,59 @@ impl TimeInterpolator {
     }
 }
 
-fn render_footer(shape_shader: &Shader<6>, text_shader: &Shader<4>, drawable_size: (u32, u32)) {
+fn render_footer(
+    shape_shader: &Shader<6>,
+    text_shader: &Shader<4>,
+    atlas: &mut GlyphAtlas,
+    drawable_size: (u32, u32),
+    state: &LogicState,
+) {
     let (w, h) = drawable_size;
     let x1 = 0.;
     let x2 = w as f32;
-    let footer_height = 20.;
+    let letter_height = 10;
+    atlas.select_scale(1., letter_height);
+    let footer_height = atlas.line_height();
     let y2 = h as f32 / 2.;
     let y1 = y2 - footer_height;
     let background_vertices = [
-        [x2, y1, 1., 1., 1., 1.],
-        [x2, y2, 1., 1., 1., 1.],
-        [x1, y2, 1., 1., 1., 1.],
-        [x1, y1, 1., 1., 1., 1.],
+        [x2, y1, 0., 1., 1., 1.],
+        [x2, y2, 0., 1., 1., 1.],
+        [x1, y2, 0., 1., 1., 1.],
+        [x1, y1, 0., 1., 1., 1.],
     ];
 
+    shape_shader.r#use();
+    shape_shader.uniform1f("scale", 1.);
+    shape_shader.uniform1f("yCenter", 0.);
     shape_shader.upload_rectangles(&[background_vertices]);
     unsafe { gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null()) }
+    let cmd = "Ahellog";
+
+    let mut text_x = x1;
+    let mut text_y = y2 + atlas.descender();
+    let mut vertices = Vec::new();
+    dbg!(atlas.line_height());
+    for c in cmd.chars() {
+        let (vertices_char, ax, ay) = atlas.get_glyph_data(c, text_x, text_y);
+        vertices.push(vertices_char);
+        text_x += ax;
+        text_y += ay;
+    }
+
+    text_shader.r#use();
+    text_shader.uniform1f("scale", 1.);
+    text_shader.uniform1f("yCenter", 0.);
+    text_shader.upload_rectangles(&vertices);
+    unsafe {
+        gl::DrawElements(
+            gl::TRIANGLES,
+            (vertices.len() * 6) as i32,
+            gl::UNSIGNED_INT,
+            ptr::null(),
+        );
+    };
+
 }
 
 fn render_cursor(
