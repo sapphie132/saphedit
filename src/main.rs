@@ -119,7 +119,7 @@ pub fn main() {
         let new_state = match &logic_state.mode {
             EditorMode::Insert => handle_events_insert(&mut event_pump, &logic_state, &clipboard),
             EditorMode::Normal => handle_events_normal(&mut event_pump, &logic_state),
-            EditorMode::Command(_) => todo!(),
+            EditorMode::Command(cmd) => handle_command_input(&mut event_pump, &logic_state, cmd),
         };
 
         if new_state.exit {
@@ -228,7 +228,6 @@ pub fn main() {
                 &logic_state,
             );
 
-            // let mock_mode = EditorMode::Command("hello".into());
             render_footer(
                 &shape_shader,
                 &text_shader,
@@ -246,10 +245,56 @@ pub fn main() {
     }
 }
 
-fn handle_events_normal<'a>(
+fn handle_command_input<'a>(
     event_pump: &mut EventPump,
     old_state: &LogicState<'a>,
+    command: &str,
 ) -> LogicState<'a> {
+    use Event::*;
+    use Keycode::*;
+    let mut state = old_state.clone();
+    for event in event_pump.poll_iter() {
+        match event {
+            Quit { .. } => state.exit = true,
+            // Cancel command
+            KeyDown {
+                keycode: Some(Escape),
+                ..
+            } => {
+                state.mode = EditorMode::Normal;
+            }
+            // Append to the command
+            TextInput { mut text, .. } => {
+                // prepend the old command.
+                text.insert_str(0, command);
+                let mode = EditorMode::Command(text);
+                state.mode = mode;
+            }
+            KeyDown {
+                keycode: Some(Return),
+                ..
+            } => {
+                handle_command(&mut state);
+            }
+            _ => (),
+        }
+    }
+    state
+}
+
+fn handle_command(state: &mut LogicState) {
+    let command = if let EditorMode::Command(cmd) = &state.mode {
+        cmd
+    } else {
+        return;
+    };
+
+    if command == ":q" {
+        state.exit = true;
+    }
+}
+
+fn handle_events_normal<'a>(event_pump: &mut EventPump, old_state: &LogicState<'a>) -> LogicState<'a> {
     use Event::*;
     use Keycode::*;
     let mut state = old_state.clone();
@@ -261,10 +306,21 @@ fn handle_events_normal<'a>(
             } => {
                 state.mode = EditorMode::Insert;
             }
-            _ => {}
+            KeyDown {
+                keycode: Some(Colon),
+                ..
+            } => state.mode = EditorMode::Command(String::new()),
+            TextInput { text, .. } if command_prefix(&text) => {
+                state.mode = EditorMode::Command(text)
+            }
+            _ => (),
         }
     }
     state
+}
+
+fn command_prefix(text: &str) -> bool {
+    text.starts_with(':') || text.starts_with('/')
 }
 
 fn handle_events_insert<'a>(
@@ -542,32 +598,31 @@ fn render_footer(
     shape_shader.uniform1f("yCenter", 0.);
     shape_shader.upload_rectangles(&[background_vertices]);
     unsafe { gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null()) }
-    let cmd = "Ahellog";
 
-    let mut text_x = x1;
-    let mut text_y = y2 + atlas.descender();
-    let mut vertices = Vec::new();
-    dbg!(atlas.line_height());
-    for c in cmd.chars() {
-        let (vertices_char, ax, ay) = atlas.get_glyph_data(c, text_x, text_y);
-        vertices.push(vertices_char);
-        text_x += ax;
-        text_y += ay;
+    if let EditorMode::Command(s) = &state.mode {
+        let mut text_x = x1;
+        let mut text_y = y2 + atlas.descender();
+        let mut vertices = Vec::new();
+        for c in s.chars() {
+            let (vertices_char, ax, ay) = atlas.get_glyph_data(c, text_x, text_y);
+            vertices.push(vertices_char);
+            text_x += ax;
+            text_y += ay;
+        }
+
+        text_shader.r#use();
+        text_shader.uniform1f("scale", 1.);
+        text_shader.uniform1f("yCenter", 0.);
+        text_shader.upload_rectangles(&vertices);
+        unsafe {
+            gl::DrawElements(
+                gl::TRIANGLES,
+                (vertices.len() * 6) as i32,
+                gl::UNSIGNED_INT,
+                ptr::null(),
+            );
+        };
     }
-
-    text_shader.r#use();
-    text_shader.uniform1f("scale", 1.);
-    text_shader.uniform1f("yCenter", 0.);
-    text_shader.upload_rectangles(&vertices);
-    unsafe {
-        gl::DrawElements(
-            gl::TRIANGLES,
-            (vertices.len() * 6) as i32,
-            gl::UNSIGNED_INT,
-            ptr::null(),
-        );
-    };
-
 }
 
 fn render_cursor(
