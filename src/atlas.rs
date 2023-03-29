@@ -100,7 +100,7 @@ impl GlyphAtlas {
         }
         let mut rasteriser = Rasterizer::new(1.).expect("Could not set up rasterizer");
         let font_desc = FontDesc::new(
-            "vera",
+            "Bitstream Vera Sans Mono",
             Style::Description {
                 slant: Slant::Normal,
                 weight: Weight::Normal,
