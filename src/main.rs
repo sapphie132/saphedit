@@ -14,14 +14,12 @@ use std::{iter, ptr};
 
 /*  To Do
    To do eventually
-   - Normal mode
-   - Commands
    - Reset cursor timer on every keystroke
    - Add font picker
-   - Figure out why ugly
 */
 
 const INSERT_CURSOR_WIDTH: f32 = 0.25;
+const NORMAL_CURSOR_WIDTH: f32 = 1.;
 const MAX_SCALE: f32 = 64.;
 const BLINK_TIME: Duration = Duration::from_millis(500);
 const MARGIN: f32 = 2.;
@@ -224,6 +222,7 @@ pub fn main() {
                 atlas.ascender(),
                 atlas.descender(),
                 cursor_visible,
+                &logic_state
             );
         }
         window.gl_swap_window();
@@ -442,13 +441,19 @@ fn render_cursor(
     ascender: f32,
     descender: f32,
     cursor_visible: bool,
+    state: &LogicState,
 ) {
     let (x, y) = cursor_coords;
     let asc = ascender;
     let dsc = descender;
     let alpha = 0.25 + f32::from(u8::from(cursor_visible)) * 0.5;
     let x1 = x;
-    let x2 = x1 + INSERT_CURSOR_WIDTH;
+    let cursor_width = match state.mode {
+        EditorMode::Insert => INSERT_CURSOR_WIDTH,
+        _ => NORMAL_CURSOR_WIDTH,
+    };
+
+    let x2 = x1 + cursor_width;
     let vertices = [
         [x2, y - dsc, 1., 1., 1., alpha],
         [x2, y - asc, 1., 1., 1., alpha],
