@@ -18,18 +18,11 @@ use std::{iter, ptr};
    - Add font picker
 */
 
-const INSERT_CURSOR_WIDTH: f32 = 0.25;
-const NORMAL_CURSOR_WIDTH: f32 = 1.;
-const MAX_SCALE: f32 = 64.;
-const BLINK_TIME: Duration = Duration::from_millis(500);
-const MARGIN: f32 = 2.;
-const SCALE_ANIM_TIME: Duration = Duration::from_millis(100);
-const SCROLL_ANIM_TIME: Duration = Duration::from_millis(100);
-const CENTER_OFFSET: f32 = -0.5;
-
 mod atlas;
 mod rope;
 mod shader;
+mod config;
+use config::*;
 
 macro_rules! log_err {
     ($e:expr) => {
