@@ -1,5 +1,9 @@
 use std::time::Duration;
 
+use sdl2::keyboard::Keycode;
+
+use crate::KeyBind;
+
 /// Width of the insertion mode cursor
 pub const INSERT_CURSOR_WIDTH: f32 = 0.25;
 /// Width of the normal mode cursor
@@ -16,3 +20,10 @@ pub const SCALE_ANIM_TIME: Duration = Duration::from_millis(100);
 pub const SCROLL_ANIM_TIME: Duration = Duration::from_millis(100);
 /// Offset from the bottom of the central line to the centre of the screen
 pub const CENTER_OFFSET: f32 = -0.5;
+
+/// Insertion mode: print available fonts to console (tmp)
+pub(crate) const INSERT_PRINT_FONTS: KeyBind = KeyBind::ctrl(Keycode::F);
+/// Insertion mode: copy whole buffer to system clipboard
+pub(crate) const INSERT_COPY: KeyBind = KeyBind::ctrl(Keycode::C);
+/// Insertion mode: paste whole buffer from system clipboard
+pub(crate) const INSERT_PASTE: KeyBind = KeyBind::ctrl(Keycode::V);

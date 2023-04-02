@@ -19,9 +19,9 @@ use std::{iter, ptr};
 */
 
 mod atlas;
+mod config;
 mod rope;
 mod shader;
-mod config;
 use config::*;
 
 macro_rules! log_err {
@@ -215,7 +215,7 @@ pub fn main() {
                 atlas.ascender(),
                 atlas.descender(),
                 cursor_visible,
-                &logic_state
+                &logic_state,
             );
         }
         window.gl_swap_window();
@@ -253,7 +253,6 @@ fn handle_events_insert(
     use Event::*;
     use Keycode::*;
     let mut state = old_state.clone();
-    let mod_ctrl: Mod = Mod::LCTRLMOD | Mod::RCTRLMOD;
     for event in event_pump.poll_iter() {
         match event {
             Quit { .. } => state.exit = true,
@@ -298,23 +297,18 @@ fn handle_events_insert(
                     state.cursor_row -= 1;
                 }
             }
-            KeyDown {
-                keycode: Some(C),
-                keymod,
-                ..
-            } if keymod.intersects(mod_ctrl) => {
+            other if other == INSERT_COPY => {
                 log_err!(clipboard.set_clipboard_text(&state.text_buffer));
             }
-            KeyDown {
-                keycode: Some(V),
-                keymod,
-                ..
-            } if keymod.intersects(mod_ctrl) => match clipboard.clipboard_text() {
+            other if other == INSERT_PASTE => match clipboard.clipboard_text() {
                 Ok(t) => {
                     state.push_str(&t);
                 }
                 Err(e) => eprintln!("{}", e),
             },
+            other if other == INSERT_PRINT_FONTS => {
+                todo!()
+            }
             KeyDown {
                 keycode: Some(Return),
                 ..
@@ -369,6 +363,35 @@ fn check_err() {
         .collect();
 
     assert!(errors.is_empty(), "Error(s) occurred: {:?}", errors);
+}
+
+struct KeyBind {
+    key: Keycode,
+    modifier: Mod,
+}
+
+impl KeyBind {
+    pub const CTRL_MOD: Mod = Mod::LCTRLMOD.union(Mod::RCTRLMOD);
+
+    const fn ctrl(key: Keycode) -> Self {
+        Self {
+            key,
+            modifier: Self::CTRL_MOD,
+        }
+    }
+}
+
+impl PartialEq<KeyBind> for Event {
+    fn eq(&self, keybind: &KeyBind) -> bool {
+        match self {
+            Event::KeyDown {
+                keycode: Some(key),
+                keymod,
+                ..
+            } => key == &keybind.key && keybind.modifier.contains(*keymod),
+            _ => false,
+        }
+    }
 }
 
 #[derive(PartialEq)]
