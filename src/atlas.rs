@@ -27,6 +27,7 @@ impl<'a> std::fmt::Display for Font<'a> {
 
 impl<'a> Font<'a> {
     pub fn query() -> Vec<Self> {
+        // TODO: get a different abstraction layer
         let ft_cfg = Config::get_current();
         let sys_fonts = ft_cfg.get_fonts(SetName::System);
         sys_fonts
@@ -144,6 +145,24 @@ impl GlyphAtlas {
             texture1,
             current_scale: Self::MIN_SCALE,
         }
+    }
+
+    pub fn change_font(&mut self, font: Font) {
+        self.sizes.replace(BTreeMap::new());
+        let font_desc = FontDesc::new(
+            font.0,
+            Style::Description {
+                slant: Slant::Normal,
+                weight: Weight::Normal,
+            },
+        );
+        let font_key = self
+            .rasteriser
+            .borrow_mut()
+            .load_font(&font_desc, Size::new(0.))
+            .expect("Font was found previously");
+
+        self.font_key = font_key;
     }
 
     pub fn select_scale(&mut self, scale: f32) {
