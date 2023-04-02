@@ -314,6 +314,9 @@ fn handle_events_insert(
                     println!("{ft}");
                 }
             }
+            other if other == INSERT_CYCLE_FONTS => {
+                todo!()
+            }
             KeyDown {
                 keycode: Some(Return),
                 ..
@@ -372,16 +375,37 @@ fn check_err() {
 
 struct KeyBind {
     key: Keycode,
-    modifier: Mod,
+    modifier: KeyMod,
+}
+
+enum KeyMod {
+    Ctrl,
+    CtrlShift,
+}
+
+impl KeyMod {
+    pub const CTRL_MOD: Mod = Mod::LCTRLMOD.union(Mod::RCTRLMOD);
+    pub const SHIFT_MOD: Mod = Mod::LSHIFTMOD.union(Mod::RSHIFTMOD);
+
+    pub fn satisfies(&self, sdl_mod: Mod) -> bool {
+        let ctrl_pressed = Self::CTRL_MOD.intersects(sdl_mod);
+        let shift_pressed = Self::SHIFT_MOD.intersects(sdl_mod);
+
+        match self {
+            KeyMod::Ctrl => ctrl_pressed && !shift_pressed,
+            KeyMod::CtrlShift => ctrl_pressed && shift_pressed,
+        }
+    }
 }
 
 impl KeyBind {
-    pub const CTRL_MOD: Mod = Mod::LCTRLMOD.union(Mod::RCTRLMOD);
-
+    const fn new(key: Keycode, modifier: KeyMod) -> Self {
+        Self { key, modifier }
+    }
     const fn ctrl(key: Keycode) -> Self {
         Self {
             key,
-            modifier: Self::CTRL_MOD,
+            modifier: KeyMod::Ctrl,
         }
     }
 }
@@ -393,7 +417,7 @@ impl PartialEq<KeyBind> for Event {
                 keycode: Some(key),
                 keymod,
                 ..
-            } => key == &keybind.key && keybind.modifier.contains(*keymod),
+            } => key == &keybind.key && keybind.modifier.satisfies(*keymod),
             _ => false,
         }
     }

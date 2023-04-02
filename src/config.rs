@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use sdl2::keyboard::Keycode;
 
-use crate::KeyBind;
+use crate::{KeyBind, KeyMod};
 
 /// Width of the insertion mode cursor
 pub const INSERT_CURSOR_WIDTH: f32 = 0.25;
@@ -23,6 +23,8 @@ pub const CENTER_OFFSET: f32 = -0.5;
 
 /// Insertion mode: print available fonts to console (tmp)
 pub(crate) const INSERT_PRINT_FONTS: KeyBind = KeyBind::ctrl(Keycode::F);
+/// Insertion mode: cycle font
+pub(crate) const INSERT_CYCLE_FONTS: KeyBind = KeyBind::new(Keycode::F, KeyMod::CtrlShift);
 /// Insertion mode: copy whole buffer to system clipboard
 pub(crate) const INSERT_COPY: KeyBind = KeyBind::ctrl(Keycode::C);
 /// Insertion mode: paste whole buffer from system clipboard
