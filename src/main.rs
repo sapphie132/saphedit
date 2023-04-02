@@ -87,6 +87,7 @@ pub fn main() {
         exit: false,
         text_buffer: String::new(),
         cursor_col: 0,
+        font: None,
         cursor_row: 0,
         line_count: 0,
         mode: EditorMode::Normal,
@@ -122,6 +123,12 @@ pub fn main() {
 
         if new_state.exit {
             break 'running;
+        }
+
+        if new_state.font != logic_state.font {
+            if let Some(ft) = new_state.font {
+                atlas.change_font(ft)
+            }
         }
 
         // Make sure to invalidate `new_state` as soon as possible to avoid
@@ -229,7 +236,10 @@ pub fn main() {
     }
 }
 
-fn handle_events_normal(event_pump: &mut EventPump, old_state: &LogicState) -> LogicState {
+fn handle_events_normal<'a>(
+    event_pump: &mut EventPump,
+    old_state: &LogicState<'a>,
+) -> LogicState<'a> {
     use Event::*;
     use Keycode::*;
     let mut state = old_state.clone();
@@ -247,11 +257,11 @@ fn handle_events_normal(event_pump: &mut EventPump, old_state: &LogicState) -> L
     state
 }
 
-fn handle_events_insert(
+fn handle_events_insert<'a>(
     event_pump: &mut EventPump,
-    old_state: &LogicState,
+    old_state: &LogicState<'a>,
     clipboard: &ClipboardUtil,
-) -> LogicState {
+) -> LogicState<'a> {
     use Event::*;
     use Keycode::*;
     let mut state = old_state.clone();
@@ -315,7 +325,20 @@ fn handle_events_insert(
                 }
             }
             other if other == INSERT_CYCLE_FONTS => {
-                todo!()
+                let mut fonts = Font::query().peekable();
+                if state.font.is_none() {
+                    state.font = fonts.next();
+                    continue;
+                }
+
+                let first = fonts.peek().copied();
+
+                let new_font = fonts
+                    .skip_while(|ft| Some(*ft) != state.font)
+                    .skip(1)
+                    .next();
+
+                state.font = new_font.or(first);
             }
             KeyDown {
                 keycode: Some(Return),
@@ -336,7 +359,7 @@ fn handle_events_insert(
     state
 }
 
-impl LogicState {
+impl<'a> LogicState<'a> {
     pub fn push_str(&mut self, s: &str) {
         let new = s.replace('\r', "");
         self.text_buffer.push_str(&new);
@@ -431,8 +454,9 @@ struct GraphicsState {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-struct LogicState {
+struct LogicState<'a> {
     exit: bool,
+    font: Option<Font<'a>>,
     text_buffer: String,
     line_count: usize,
     cursor_col: usize,

@@ -17,7 +17,7 @@ use crate::shader::Shader;
 #[derive(Clone, Copy)]
 struct Rgba([u8; 4]);
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Font<'a>(&'a str);
 impl<'a> std::fmt::Display for Font<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -26,7 +26,7 @@ impl<'a> std::fmt::Display for Font<'a> {
 }
 
 impl<'a> Font<'a> {
-    pub fn query() -> Vec<Self> {
+    pub fn query() -> impl Iterator<Item = Font<'a>> {
         // TODO: get a different abstraction layer
         let ft_cfg = Config::get_current();
         let sys_fonts = ft_cfg.get_fonts(SetName::System);
@@ -41,7 +41,6 @@ impl<'a> Font<'a> {
                     && !lowercase.contains("bold")
             })
             .map(Font)
-            .collect()
     }
 }
 
@@ -129,7 +128,7 @@ impl GlyphAtlas {
         }
         let mut rasteriser = Rasterizer::new(1.).expect("Could not set up rasterizer");
         let font_desc = FontDesc::new(
-            "Bitstream Vera Sans Mono",
+            "Liberation Mono",
             Style::Description {
                 slant: Slant::Normal,
                 weight: Weight::Normal,
@@ -163,6 +162,7 @@ impl GlyphAtlas {
             .expect("Font was found previously");
 
         self.font_key = font_key;
+        unsafe { GlyphMap::upload_texture(&self.get_current(), self.texture1) };
     }
 
     pub fn select_scale(&mut self, scale: f32) {
