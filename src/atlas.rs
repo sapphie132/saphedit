@@ -7,6 +7,7 @@ use std::{
 };
 
 use crossfont::{
+    ft::fc::{Config, SetName},
     BitmapBuffer, Error, FontDesc, FontKey, GlyphKey, Rasterize, RasterizedGlyph, Rasterizer, Size,
     Slant, Style, Weight,
 };
@@ -15,6 +16,33 @@ use crate::shader::Shader;
 
 #[derive(Clone, Copy)]
 struct Rgba([u8; 4]);
+
+#[derive(Debug)]
+pub struct Font<'a>(&'a str);
+impl<'a> std::fmt::Display for Font<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl<'a> Font<'a> {
+    pub fn query() -> Vec<Self> {
+        let ft_cfg = Config::get_current();
+        let sys_fonts = ft_cfg.get_fonts(SetName::System);
+        sys_fonts
+            .into_iter()
+            .flat_map(|font| font.fullname())
+            .filter(|s| {
+                let lowercase = s.to_lowercase();
+                lowercase.contains("mono")
+                    && !lowercase.contains("italic")
+                    && !lowercase.contains("oblique")
+                    && !lowercase.contains("bold")
+            })
+            .map(Font)
+            .collect()
+    }
+}
 
 /// Represents where a glyph is in memory
 #[derive(Clone, Copy)]

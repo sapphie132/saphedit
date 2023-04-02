@@ -24,6 +24,8 @@ mod rope;
 mod shader;
 use config::*;
 
+use crate::atlas::Font;
+
 macro_rules! log_err {
     ($e:expr) => {
         let e = $e;
@@ -307,7 +309,10 @@ fn handle_events_insert(
                 Err(e) => eprintln!("{}", e),
             },
             other if other == INSERT_PRINT_FONTS => {
-                todo!()
+                let fl = Font::query();
+                for ft in fl {
+                    println!("{ft}");
+                }
             }
             KeyDown {
                 keycode: Some(Return),
